@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Kuis Interaktif</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <!-- Teks di sini diisi ulang oleh quiz-engine.js lewat getConfig() (elemen opsional
+         #quizBrand/#quizTitle/#quizDesc/#badgePG/#badgeEssay). Teks default di bawah
+         ini SENGAJA generik supaya tetap masuk akal kalau getConfig() gagal/timeout
+         (lihat blueprint 16.6 -- jangan blank). -->
+    <div class="brand" id="quizBrand">Quiz Interaktif</div>
+    <div class="progress-wrap"><div class="progress" id="progress"></div></div>
+  </header>
+
+  <main class="content">
+    <section class="page active" id="introPage">
+      <div class="card intro">
+        <div class="icon">📝</div>
+        <h1 id="quizTitle">Kuis Interaktif</h1>
+        <p id="quizDesc">Uji pemahamanmu lewat kuis interaktif ini.</p>
+        <div class="meta">
+          <span class="badge" id="badgePG">Pilihan Ganda</span>
+          <span class="badge" id="badgeEssay">Essay</span>
+          <span class="badge">Tanpa Timer</span>
+        </div>
+        <div class="field"><label for="nama">Nama</label><input id="nama" type="text" placeholder="Masukkan nama"></div>
+        <div class="field"><label for="kelas">Kelas</label><input id="kelas" type="text" placeholder="Contoh: IX A"></div>
+      </div>
+    </section>
+
+    <section class="page" id="resultPage">
+      <div class="card result">
+        <div class="icon">🎉</div>
+        <h1>Quiz Selesai!</h1>
+        <p id="studentInfo"></p>
+        <div class="score" id="score">0/100</div>
+        <p>Nilai pilihan ganda dihitung otomatis. Jawaban essay dapat diperiksa oleh guru.</p>
+        <div class="review" id="review"></div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="nav">
+    <button class="btn-secondary" id="backBtn" onclick="back()" disabled>Kembali</button>
+    <button class="btn-primary" id="nextBtn" onclick="next()" disabled>Memuat soal...</button>
+  </nav>
+</div>
+
+<!-- Tidak ada config.js di sini -- URL Apps Script datang dari parameter ?src= di query
+     string (lihat resolveScriptUrl() di quiz-engine.js, blueprint 16.6). Satu halaman ini
+     dipakai ulang untuk semua paket kuis, hanya beda ?src=... di link yang dibagikan guru. -->
+<script src="quiz-engine.js"></script>
+</body>
+</html>

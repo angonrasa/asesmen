@@ -1,0 +1,81 @@
+/* styles.css - Setup Wizard (M6.3)
+   Halaman statis terpusat, dipakai bersama quiz-runner (M6.4: deploy bareng di hosting
+   yang sama). Pakai token desain yang sama dengan quiz-runner/styles.css supaya dua
+   halaman itu terlihat satu keluarga (--accent, --bg, --card, dst). Wizard tidak punya
+   config/warna dari Sheet -- ini halaman ADMIN, bukan halaman siswa -- jadi --accent
+   hardcode ke warna brand wizard, tidak diubah-ubah.
+*/
+:root{
+  --bg:#f6f8fc; --card:#fff; --text:#172033; --muted:#718096;
+  --accent:#5b67f1;
+  --accent-soft: color-mix(in srgb, var(--accent) 18%, white);
+  --accent-softer: color-mix(in srgb, var(--accent) 8%, white);
+  --accent-dark: color-mix(in srgb, var(--accent) 85%, black);
+  --line:#e7eaf2;
+  --good:#18a66a; --bad:#e55353;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; min-height:100vh; background:var(--bg); color:var(--text);
+  font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+}
+.app{min-height:100vh; display:flex; flex-direction:column}
+.top{max-width:700px;width:100%;margin:auto;padding:36px 20px 8px}
+.brand{font-size:13px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font-size:30px;line-height:1.15;margin:10px 0 8px}
+p{color:var(--muted);line-height:1.6}
+code{
+  background:#f2f4f9;border-radius:6px;padding:1px 6px;
+  font-size:.9em;color:#4a5271
+}
+.content{flex:1;max-width:700px;width:100%;margin:auto;padding:20px 20px 48px}
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:24px;
+  padding:28px;box-shadow:0 14px 45px rgba(34,43,80,.08)
+}
+.hidden{display:none}
+.field{margin:16px 0}
+label{display:block;font-size:13px;font-weight:700;margin-bottom:7px}
+input[type=text],input[type=url]{
+  width:100%;border:1.5px solid var(--line);border-radius:14px;padding:13px 14px;
+  font:inherit;outline:none;background:#fbfcfe
+}
+input[type=text]:focus,input[type=url]:focus{border-color:var(--accent);background:white}
+.field-error{color:var(--bad);font-size:13px;margin:8px 0 0;min-height:2px}
+.color-row{display:flex;align-items:center;gap:12px}
+input[type=color]{
+  width:54px;height:42px;border:1.5px solid var(--line);border-radius:10px;
+  background:#fbfcfe;cursor:pointer;padding:3px
+}
+#warnaText{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:14px;color:var(--muted)
+}
+button{
+  border:0;border-radius:15px;padding:14px 18px;font:inherit;font-weight:800;cursor:pointer
+}
+.btn-primary{flex:1;background:linear-gradient(135deg,var(--accent),var(--accent-dark));color:#fff;box-shadow:0 8px 22px color-mix(in srgb, var(--accent) 30%, transparent)}
+.btn-secondary{background:#fff;color:#596273;border:1px solid var(--line)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.link-box{display:flex;gap:10px}
+.link-box input{
+  flex:1;border:1.5px solid var(--line);border-radius:14px;padding:13px 14px;
+  font:inherit;font-size:13px;outline:none;background:#fbfcfe;color:var(--text)
+}
+.link-box input:focus{border-color:var(--accent)}
+.link-box button{flex-shrink:0}
+.warn{
+  margin:18px 0 0;border:1.5px solid var(--bad);border-radius:12px;
+  background:#fff0f0;color:#a93434;font-size:14px;padding:12px 14px;line-height:1.5
+}
+.small{font-size:13px;color:var(--muted)}
+.result{text-align:center}
+.result h2{margin:0 0 10px}
+.result p{text-align:center}
+.result .link-box{text-align:left;margin-top:18px}
+.result a{color:var(--accent);font-weight:700}
+@media(max-width:520px){
+  .card{padding:22px;border-radius:20px}
+  h1{font-size:26px}
+  .top{padding-top:26px}
+}

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Setup Wizard — Buat Link Kuis</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">Setup Wizard</div>
+    <h1>Buat Link Kuis</h1>
+    <p>Tempel URL Apps Script kuis Anda (yang berakhir <code>/exec</code>), isi 4 kolom, lalu klik tombol di bawah. Anda akan mendapat link kuis yang siap dibagikan ke siswa.</p>
+  </header>
+
+  <main class="content">
+    <form id="wizardForm" class="card wizard" novalidate>
+      <div class="field">
+        <label for="scriptUrl">URL Apps Script</label>
+        <input type="url" id="scriptUrl" placeholder="https://script.google.com/macros/s/..." autocomplete="off">
+        <p class="field-error" id="urlError"></p>
+      </div>
+
+      <div class="field">
+        <label for="judul">Judul Kuis</label>
+        <input type="text" id="judul" placeholder="Contoh: IPA Kelas 9 — Sistem Koordinasi">
+      </div>
+
+      <div class="field">
+        <label for="brand">Nama Mapel / Brand</label>
+        <input type="text" id="brand" placeholder="Contoh: IPA • IPA Kelas 9">
+      </div>
+
+      <div class="field">
+        <label for="deskripsi">Deskripsi Singkat</label>
+        <input type="text" id="deskripsi" placeholder="Contoh: Kerjakan soal berikut dengan teliti.">
+      </div>
+
+      <div class="field">
+        <label for="warna">Warna Tema</label>
+        <div class="color-row">
+          <input type="color" id="warna" value="#2563eb">
+          <span id="warnaText">#2563eb</span>
+        </div>
+      </div>
+
+      <button type="submit" id="submitBtn" class="btn-primary">Buat Link Kuis</button>
+      <p class="field-error" id="formError"></p>
+    </form>
+
+    <section id="resultCard" class="card result hidden">
+      <h2>Link Kuis Berhasil Dibuat</h2>
+      <p class="small">Bagikan link ini ke siswa. Judul, deskripsi, dan warna sudah tersimpan di tab Config kuis Anda.</p>
+      <div class="link-box">
+        <input type="text" id="finalLink" readonly>
+        <button type="button" id="copyBtn" class="btn-secondary">Salin</button>
+      </div>
+      <p class="warn hidden" id="selfTestWarn"></p>
+      <p class="small">Mau buat kuis lain? <a href="#" id="resetLink">Mulai dari awal.</a></p>
+    </section>
+  </main>
+</div>
+
+<script src="wizard.js"></script>
+</body>
+</html>
