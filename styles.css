@@ -86,6 +86,26 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .review div{padding:11px 13px;border-radius:12px;margin:7px 0;font-size:14px}
 .correct{background:#eafaf3;color:#13774e}.wrong{background:#fff0f0;color:#a93434}
 .small{font-size:13px;color:var(--muted)}
+/* M8.2: Home Screen -- default display:none, ditoggle "block" lewat script inline
+   di index.html (bukan quiz-engine.js) kalau halaman dibuka tanpa query string.
+   Sengaja bukan bagian sistem .page/.active biar tidak numpang di show()/pages(). */
+#homeScreen{display:none; width:100%; max-width:760px; margin:0 auto; padding:32px 20px}
+.home-intro{text-align:center; margin-bottom:24px}
+.home-intro .icon{background:var(--accent-softer)}
+.home-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:16px}
+.home-card{text-align:center; text-decoration:none; color:inherit; display:flex; flex-direction:column; align-items:center}
+.home-card .icon{margin-bottom:14px}
+.home-card h2{font-size:18px; margin:0 0 8px}
+.home-card .field{width:100%; text-align:left; margin:14px 0 10px}
+.home-card .btn-primary{width:100%}
+.home-error{color:var(--bad)}
+.home-card-link{transition:.18s}
+.home-card-link:hover{border-color:var(--accent-soft); box-shadow:0 14px 45px rgba(34,43,80,.14)}
+.home-card-soon{opacity:.6}
+@media(max-width:680px){
+  .home-grid{grid-template-columns:1fr}
+}
+
 @media(max-width:520px){
   .card{padding:22px;border-radius:23px}
   .intro{padding:30px 20px}

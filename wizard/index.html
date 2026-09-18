@@ -11,7 +11,7 @@
   <header class="top">
     <div class="brand">Setup Wizard</div>
     <h1>Buat Link Kuis</h1>
-    <p>Tempel URL Apps Script kuis Anda (yang berakhir <code>/exec</code>), isi 4 kolom, lalu klik tombol di bawah. Anda akan mendapat link kuis yang siap dibagikan ke siswa.</p>
+    <p>Tempel URL Apps Script kuis Anda (yang berakhir <code>/exec</code>), isi kolom di bawah, lalu klik tombol di bawah. Anda akan mendapat link kuis yang siap dibagikan ke siswa.</p>
   </header>
 
   <main class="content">
@@ -45,6 +45,13 @@
         </div>
       </div>
 
+      <div class="field">
+        <label for="kodeCustom">Kode Link Custom (opsional)</label>
+        <input type="text" id="kodeCustom" placeholder="Contoh: utsipa" autocomplete="off">
+        <p class="small">Huruf, angka, dan tanda "-" saja, 3-30 karakter. Kosongkan untuk dapat kode acak.</p>
+        <p class="field-error" id="kodeCustomError"></p>
+      </div>
+
       <button type="submit" id="submitBtn" class="btn-primary">Buat Link Kuis</button>
       <p class="field-error" id="formError"></p>
     </form>
@@ -56,12 +63,19 @@
         <input type="text" id="finalLink" readonly>
         <button type="button" id="copyBtn" class="btn-secondary">Salin</button>
       </div>
+      <div class="qr-box">
+        <div id="qrContainer"></div>
+        <button type="button" id="downloadQrBtn" class="btn-secondary hidden">Download QR (SVG)</button>
+      </div>
       <p class="warn hidden" id="selfTestWarn"></p>
       <p class="small">Mau buat kuis lain? <a href="#" id="resetLink">Mulai dari awal.</a></p>
     </section>
   </main>
 </div>
 
+<!-- M7.6 (blueprint 17.7): library QR di-vendor lokal (bukan CDN saat runtime),
+     lihat PANDUAN-DEPLOY-SHORTENER.md untuk cara download qrcode-lib.js sekali. -->
+<script src="qrcode-lib.js"></script>
 <script src="wizard.js"></script>
 </body>
 </html>

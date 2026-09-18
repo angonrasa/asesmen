@@ -8,7 +8,7 @@
 </head>
 <body>
 <div class="app">
-  <header class="top">
+  <header class="top" id="quizHeader">
     <!-- Teks di sini diisi ulang oleh quiz-engine.js lewat getConfig() (elemen opsional
          #quizBrand/#quizTitle/#quizDesc/#badgePG/#badgeEssay). Teks default di bawah
          ini SENGAJA generik supaya tetap masuk akal kalau getConfig() gagal/timeout
@@ -43,14 +43,91 @@
         <div class="review" id="review"></div>
       </div>
     </section>
+
+    <!-- M8.2: Home Screen -- hanya tampil kalau halaman ini dibuka TANPA query string
+         sama sekali (bukan ?src=/?<kode> dari link guru). display:none default di
+         styles.css, ditoggle sinkron oleh script inline di bawah SEBELUM quiz-engine.js
+         dimuat, supaya tidak ada flash konten kuis. Sengaja di luar sistem .page/show()
+         quiz-engine.js biar tidak mengubah index array pages(). -->
+    <section class="home" id="homeScreen">
+      <div class="home-intro">
+        <div class="icon">📚</div>
+        <h1>Kuis Interaktif Aman</h1>
+        <p>Pilih salah satu di bawah ini.</p>
+      </div>
+      <div class="home-grid">
+        <div class="card home-card">
+          <div class="icon">📝</div>
+          <h2>Kerjakan Soal</h2>
+          <p class="small">Punya link atau kode kuis dari guru? Tempel di sini.</p>
+          <div class="field">
+            <label for="homeKode">Link atau kode kuis</label>
+            <input id="homeKode" type="text" placeholder="Contoh: utsipa atau link lengkap dari guru">
+          </div>
+          <p class="small home-error" id="homeKodeError" hidden></p>
+          <button class="btn-primary" id="homeKodeBtn" type="button">Buka Kuis</button>
+        </div>
+
+        <a class="card home-card home-card-link" href="wizard/">
+          <div class="icon">🔗</div>
+          <h2>Buat Link Soal</h2>
+          <p class="small">Untuk guru: bikin link kuis dari soal buatanmu sendiri.</p>
+        </a>
+
+        <div class="card home-card home-card-soon">
+          <div class="icon">🖊️</div>
+          <h2>Penjelasan Soal</h2>
+          <p class="small">Mode bahas soal di depan kelas (coret-coret). Segera hadir.</p>
+        </div>
+      </div>
+    </section>
   </main>
 
-  <nav class="nav">
+  <nav class="nav" id="quizNav">
     <button class="btn-secondary" id="backBtn" onclick="back()" disabled>Kembali</button>
     <button class="btn-primary" id="nextBtn" onclick="next()" disabled>Memuat soal...</button>
   </nav>
 </div>
 
+<script>
+  // M8.2: dijalankan sinkron SEBELUM quiz-engine.js dimuat (bukan menunggu
+  // DOMContentLoaded/network), supaya tidak ada flash tampilan kuis generik dulu baru
+  // ganti ke Home Screen. Kondisi persis sama dengan guard di quiz-engine.js
+  // (!window.location.search) -- kalau ada ?src= atau ?<kode> apapun, blok ini
+  // dilewati dan halaman jalan seperti quiz-runner biasa, link lama tidak berubah.
+  if (!window.location.search) {
+    document.getElementById("quizHeader").style.display = "none";
+    document.getElementById("introPage").style.display = "none";
+    document.getElementById("quizNav").style.display = "none";
+    document.getElementById("homeScreen").style.display = "block";
+  }
+
+  // M8.2: tombol "Kerjakan Soal" di Home Screen -- terima kode pendek (mis. "utsipa")
+  // ATAU link lengkap yang sudah dibagikan guru (mis. ".../asesmen/?utsipa" atau
+  // ".../asesmen/?src=..."), lalu redirect ke query string yang sesuai di halaman ini
+  // juga. Tidak menebak/memvalidasi isi kode -- validasi kode pendek tetap tanggung
+  // jawab resolveKode_() di quiz-engine.js seperti biasa setelah redirect.
+  document.getElementById("homeKodeBtn").addEventListener("click", function () {
+    var input = document.getElementById("homeKode");
+    var errorEl = document.getElementById("homeKodeError");
+    var raw = input.value.trim();
+    errorEl.hidden = true;
+    if (!raw) {
+      errorEl.textContent = "Isi dulu link atau kode kuisnya.";
+      errorEl.hidden = false;
+      return;
+    }
+    var queryIndex = raw.indexOf("?");
+    var query = queryIndex >= 0 ? raw.slice(queryIndex + 1) : raw;
+    query = query.trim();
+    if (!query) {
+      errorEl.textContent = "Link atau kode yang ditempel tidak dikenali.";
+      errorEl.hidden = false;
+      return;
+    }
+    window.location.href = window.location.pathname + "?" + query;
+  });
+</script>
 <!-- Tidak ada config.js di sini -- URL Apps Script datang dari parameter ?src= di query
      string (lihat resolveScriptUrl() di quiz-engine.js, blueprint 16.6). Satu halaman ini
      dipakai ulang untuk semua paket kuis, hanya beda ?src=... di link yang dibagikan guru. -->

@@ -12,6 +12,11 @@
 //   #quizTitle, #quizBrand, #quizDesc, #badgePG, #badgeEssay.
 
 (function () {
+  // M7.2 (blueprint bagian 17): URL Web App shortener terpisah (backend-shortener/,
+  // lihat PANDUAN-DEPLOY-SHORTENER.md). GANTI ke URL /exec asli setelah deploy --
+  // sebelum itu diganti, mode kode pendek (M7.5, di bawah) akan selalu gagal resolve.
+  const SHORTENER_URL = "ISI_DENGAN_URL_SHORTENER_SAAT_DEPLOY";
+
   let soalPG = [];      // [{no, soal, opsi:{A,B,C,D}}]
   let soalEssay = [];   // [{no, soal}]
   let allQuestions = []; // gabungan PG + essay, urut, dipakai untuk navigasi & progress
@@ -19,7 +24,8 @@
   let current = 0;       // 0 = intro, 1..N = soal, N+1 = result
   let submitting = false;
   let SCRIPT_URL = null;    // di-resolve oleh resolveScriptUrl() saat init
-  let IS_RUNNER_MODE = false; // true kalau URL datang dari ?src= (bukan config.js)
+  let IS_RUNNER_MODE = false; // true kalau URL datang dari ?src= atau ?<kode> (bukan config.js)
+  let SHORTCODE_ERROR = null; // M7.5: pesan spesifik kalau resolve kode gagal, dipakai loadSoal()
 
   function el(id) { return document.getElementById(id); }
 
@@ -36,14 +42,51 @@
   //   2. Parameter ?src= di query string — dipakai oleh quiz-runner terpusat (M6.2+,
   //      lihat blueprint bagian 16.6). URLSearchParams.get() sudah otomatis decode.
   //      Jalur ini menandai IS_RUNNER_MODE = true.
-  function resolveScriptUrl() {
+  //   3. Query tanpa "=" (mis. ?utsipa) — kode pendek dari shortener (M7, blueprint
+  //      17.6). Di-resolve dulu ke SHORTENER_URL untuk dapat src asli SEBELUM
+  //      loadSoal()/loadConfig() jalan. Kalau gagal, SHORTCODE_ERROR diisi pesan
+  //      spesifik ("link tidak valid/sudah tidak berlaku"), dipakai loadSoal() --
+  //      BUKAN dibiarkan blank/nextBtn aktif diam-diam (pola guard sama seperti M6.2.4).
+  //   Fungsi ini ASYNC karena mode 3 butuh network call sebelum SCRIPT_URL final tahu.
+  async function resolveScriptUrl() {
     if (typeof APPS_SCRIPT_URL !== "undefined" && APPS_SCRIPT_URL) {
       IS_RUNNER_MODE = false;
       return APPS_SCRIPT_URL;
     }
     IS_RUNNER_MODE = true;
-    const src = new URLSearchParams(window.location.search).get("src");
-    return src ? src.trim() : null;
+
+    const params = new URLSearchParams(window.location.search);
+    const src = params.get("src");
+    if (src) {
+      return src.trim();
+    }
+
+    // location.search selalu diawali "?" kalau ada isi apapun.
+    const raw = window.location.search.startsWith("?") ? window.location.search.slice(1) : "";
+    if (!raw || raw.includes("=")) {
+      // Tidak ada query sama sekali, atau ada "=" tapi bukan "src=" (mis. typo
+      // parameter lain) -- jangan ditebak sebagai kode, biarkan loadSoal() kasih
+      // pesan generik "?src= tidak ada" seperti sebelumnya.
+      return null;
+    }
+
+    return await resolveKode_(raw);
+  }
+
+  // M7.5: panggil resolve() shortener, isi SHORTCODE_ERROR kalau gagal.
+  async function resolveKode_(kode) {
+    try {
+      const res = await fetch(SHORTENER_URL + "?action=resolve&kode=" + encodeURIComponent(kode));
+      const data = await res.json();
+      if (!data.ok) {
+        SHORTCODE_ERROR = "Link ini tidak valid atau sudah tidak berlaku. Minta link kuis yang baru dari guru.";
+        return null;
+      }
+      return data.src;
+    } catch (err) {
+      SHORTCODE_ERROR = "Gagal memeriksa link kuis ini. Cek koneksi internet, lalu muat ulang halaman.";
+      return null;
+    }
   }
 
   // ====== LOAD CONFIG (mode runner saja) ======
@@ -99,9 +142,11 @@
 
   async function loadSoal() {
     if (!SCRIPT_URL) {
-      // Pesan dibedakan per mode (M6.2.4): di runner tidak ada config.js sama sekali,
-      // jadi menyebutnya cuma bikin bingung -- fokus ke penyebab yang relevan buat mode ini.
-      const msg = IS_RUNNER_MODE
+      // Pesan dibedakan per mode (M6.2.4, diperluas M7.5): SHORTCODE_ERROR paling
+      // spesifik (kode pendek gagal di-resolve), baru fallback ke pesan generik lama.
+      const msg = SHORTCODE_ERROR
+        ? SHORTCODE_ERROR
+        : IS_RUNNER_MODE
         ? "Link kuis ini tidak lengkap (parameter ?src= tidak ada). Minta link kuis yang benar dari guru."
         : "URL Apps Script tidak ditemukan. Pastikan config.js berisi APPS_SCRIPT_URL.";
       setIntroLoading(false, msg);
@@ -314,9 +359,23 @@
   window.next = next;
   window.back = back;
 
-  document.addEventListener("DOMContentLoaded", () => {
+  document.addEventListener("DOMContentLoaded", async () => {
+    // M8.2: Home Screen menyatu di index.html quiz-runner. Kalau halaman dibuka TANPA
+    // query string sama sekali (bukan link kuis dari guru: bukan ?src= maupun ?<kode>)
+    // DAN halaman ini punya elemen #homeScreen, index.html (script inline sebelum tag
+    // ini) sudah menampilkan Home Screen & menyembunyikan UI kuis -- jangan jalankan
+    // resolveScriptUrl()/loadConfig()/loadSoal() sama sekali, cukup berhenti di sini.
+    // Guard pakai el("homeScreen") supaya paket lama yang TIDAK punya elemen ini
+    // (template-legacy-M5, contoh-IPA-Kelas9 -- keduanya juga wajar dibuka tanpa query
+    // string karena pakai config.js, bukan ?src=) tetap jalan 100% seperti sebelumnya,
+    // tidak kena guard ini sama sekali.
+    if (!window.location.search && el("homeScreen")) return;
+
     show(0);
-    SCRIPT_URL = resolveScriptUrl();
+    // M7.5: resolveScriptUrl() sekarang async (mode kode pendek butuh network call).
+    // Tampilkan loading dulu supaya nextBtn tidak kelihatan siap sebelum resolve selesai.
+    setIntroLoading(true);
+    SCRIPT_URL = await resolveScriptUrl();
     loadConfig(); // fire-and-forget, tidak nunggu ini selesai buat mulai loadSoal()
     loadSoal();
   });
