@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<title>Bahas Soal</title>
+<link rel="stylesheet" href="coretan.css">
+</head>
+<body>
+<div class="app">
+  <!-- Gate: tampil kalau dibuka tanpa ?src=/?<kode> sama sekali. Ditoggle
+       lewat class .is-hidden di JS -- SENGAJA tidak pakai atribut `hidden`
+       lagi (bug sebelumnya: CSS .gate{display:flex} menang lawan aturan
+       bawaan browser [hidden]{display:none}, jadi dua halaman kelihatan
+       bersamaan). .is-hidden{display:none!important} di CSS selalu menang. -->
+  <section class="gate" id="gatePage">
+    <div class="gate-card">
+      <div class="gate-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L10 17l-4 1 1-4Z"/><path d="M13 5l3 3"/></svg>
+      </div>
+      <h1>Bahas Soal</h1>
+      <p class="gate-desc">Tempel link atau kode kuis yang sama dengan link "Kerjakan Soal" yang dibagikan ke siswa.</p>
+      <input id="gateKode" class="gate-input" type="text" placeholder="Contoh: utsipa atau link lengkap" autocomplete="off">
+      <p class="gate-error" id="gateError" hidden></p>
+      <button class="gate-btn" id="gateBtn" type="button">Buka</button>
+    </div>
+  </section>
+
+  <!-- Board: papan tulis coret-coret. -->
+  <section class="board-page is-hidden" id="boardPage">
+    <div class="stage" id="boardStage">
+
+      <header class="hud-top">
+        <button class="hud-icon" id="homeBtn" aria-label="Kembali ke beranda">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+        </button>
+        <div class="hud-title" id="boardTitle">Memuat…</div>
+        <button class="hud-icon" id="clearAllBtn" aria-label="Hapus semua coretan">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+        </button>
+      </header>
+
+      <div class="board" id="board">
+        <div class="board-content" id="boardContent">
+          <p class="board-loading" id="boardLoading">Memuat soal…</p>
+        </div>
+        <canvas class="board-canvas" id="boardCanvas"></canvas>
+        <div class="ref-images" id="refImages"></div>
+      </div>
+
+      <button class="hud-nav hud-nav-prev" id="prevBtn" aria-label="Soal sebelumnya">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <button class="hud-nav hud-nav-next" id="nextBtn" aria-label="Soal berikutnya">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
+
+      <!-- Panel warna & ukuran -- tersembunyi sampai tombol warna (colorToggle)
+           di dock disentuh. Progressive disclosure: tool yang jarang diganti
+           (warna, ukuran) tidak ikut mejeng terus di dock utama. -->
+      <div class="panel is-hidden" id="colorPanel">
+        <div class="panel-colors">
+          <button class="swatch active" data-color="#1c1c1e" style="background:#1c1c1e" aria-label="Hitam"></button>
+          <button class="swatch" data-color="#ff453a" style="background:#ff453a" aria-label="Merah"></button>
+          <button class="swatch" data-color="#ff9f0a" style="background:#ff9f0a" aria-label="Oranye"></button>
+          <button class="swatch" data-color="#ffd60a" style="background:#ffd60a" aria-label="Kuning"></button>
+          <button class="swatch" data-color="#32d74b" style="background:#32d74b" aria-label="Hijau"></button>
+          <button class="swatch" data-color="#0a84ff" style="background:#0a84ff" aria-label="Biru"></button>
+          <button class="swatch" data-color="#bf5af2" style="background:#bf5af2" aria-label="Ungu"></button>
+        </div>
+        <input type="range" id="sizeRange" min="2" max="24" value="4" aria-label="Ukuran">
+      </div>
+
+      <!-- Umpan balik singkat untuk gestur 2 jari (undo/redo) & coret-hapus. -->
+      <div class="toast is-hidden" id="toast" role="status" aria-live="polite"></div>
+
+      <div class="dock" id="dock">
+        <button class="dock-btn active" data-tool="pen" aria-label="Spidol">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L10 17l-4 1 1-4Z"/><path d="M13 5l3 3"/></svg>
+        </button>
+        <button class="dock-btn" data-tool="highlight" aria-label="Stabilo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 13l4 4 8-8-4-4-8 8Z"/><path d="M8 21h8"/><path d="M4 21l2-2"/></svg>
+        </button>
+        <button class="dock-btn" data-tool="eraser" aria-label="Penghapus">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15l8-8a2 2 0 0 1 3 0l5 5a2 2 0 0 1 0 3l-5 5H8l-5-5a2 2 0 0 1 0-3Z"/><path d="M13 8l5 5"/></svg>
+        </button>
+        <button class="dock-btn" data-tool="select" aria-label="Pilih & atur gambar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l6.2 16.2 2-6.4 6.4-2L5 3Z"/></svg>
+        </button>
+        <span class="dock-sep"></span>
+        <button class="dock-btn" id="colorToggle" aria-label="Warna & ukuran">
+          <span class="dock-color-dot" id="colorDot"></span>
+        </button>
+        <label class="dock-btn dock-file" aria-label="Tambah gambar referensi">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.4"/><path d="M21 15.5l-4.5-4.5-4 4-3-3-5.5 5.5"/></svg>
+          <input type="file" id="imgInput" accept="image/*" hidden>
+        </label>
+      </div>
+
+    </div>
+  </section>
+</div>
+<script src="coretan-engine.js"></script>
+</body>
+</html>

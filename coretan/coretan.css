@@ -1,0 +1,299 @@
+:root {
+  --ink: #1c1c1e;
+  --muted: #8e8e93;
+  --accent: #007aff;
+  --board-bg: #fafbfc;
+  --divider: rgba(60, 60, 67, 0.13);
+  --glass: rgba(255, 255, 255, 0.78);
+  --glass-strong: rgba(255, 255, 255, 0.92);
+  --danger: #ff3b30;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--board-bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+}
+
+.app { height: 100%; }
+.is-hidden { display: none !important; }
+
+button { font-family: inherit; }
+
+/* ===== Gate ===== */
+.gate {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: var(--board-bg);
+}
+.gate-card { max-width: 360px; width: 100%; text-align: center; }
+.gate-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 18px;
+  border-radius: 16px;
+  background: rgba(0, 122, 255, 0.1);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gate-icon svg { width: 26px; height: 26px; }
+.gate-card h1 { font-size: 22px; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.3px; }
+.gate-desc { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 24px; }
+.gate-input {
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px var(--divider);
+  font-size: 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+.gate-input:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--accent); }
+.gate-error { color: var(--danger); font-size: 13px; margin: 0 0 10px; }
+.gate-btn {
+  width: 100%;
+  padding: 14px;
+  margin-top: 8px;
+  border: none;
+  border-radius: 14px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gate-btn:active { opacity: 0.75; }
+
+/* ===== Stage (board page) ===== */
+.board-page { height: 100%; }
+/* touch-action: none supaya cubit 2 jari dibaca aplikasi, bukan di-zoom browser. */
+.stage { position: relative; height: 100%; background: var(--board-bg); touch-action: none; }
+
+/* HUD atas: transparan, blur -- tidak makan tempat sebagai "bar" tebal */
+.hud-top {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 10px 10px;
+  background: linear-gradient(rgba(250,251,252,0.95), rgba(250,251,252,0));
+  pointer-events: none;
+}
+.hud-top > * { pointer-events: auto; }
+.hud-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.hud-icon {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: var(--glass);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.hud-icon svg { width: 17px; height: 17px; }
+.hud-icon:active { opacity: 0.6; }
+#clearAllBtn { color: var(--danger); }
+
+/* Board: full-bleed, tanpa kartu/border -- teks soal langsung di atas
+   background, canvas transparan menutup semuanya. */
+.board { position: relative; height: 100%; overflow: hidden; }
+.board-content {
+  position: absolute;
+  inset: 0;
+  padding: 76px 24px 100px;
+  /* Tidak scroll sendiri lagi: soal panjang dijangkau dengan geser 2 jari.
+     Zoom/geser diterapkan lewat transform dari JS. */
+  overflow: visible;
+  transform-origin: 0 0;
+  z-index: 1;
+}
+.board-loading { color: var(--muted); text-align: center; margin-top: 60px; font-size: 15px; }
+.q-no { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.board-content h2 { font-size: 20px; line-height: 1.45; font-weight: 600; margin: 0 0 18px; letter-spacing: -0.2px; }
+.q-opsi { display: flex; flex-direction: column; }
+.q-opsi-item {
+  display: flex;
+  gap: 12px;
+  padding: 13px 2px;
+  border-bottom: 1px solid var(--divider);
+  font-size: 16px;
+}
+.q-opsi-item:last-child { border-bottom: none; }
+.q-opsi-item .letter { font-weight: 700; color: var(--accent); flex-shrink: 0; width: 18px; }
+
+.board-canvas { position: absolute; inset: 0; z-index: 3; touch-action: none; }
+
+/* M8.5 (direvisi 18.2b): gambar referensi -- BISA LEBIH DARI SATU per soal.
+   Urutan layer (bug lama diperbaiki): soal (z-index 1) < gambar referensi
+   (z-index 2) < kanvas coretan (z-index 3) -- supaya goresan SELALU kelihatan
+   di atas gambar yang ditempel, bukan malah ketiban gambar.
+   Default TIDAK interaktif (pointer-events:none) supaya goresan pena/stabilo/
+   penghapus bisa digambar tepat di atasnya tanpa terhalang; hanya saat tool
+   "Pilih Gambar" aktif (class .editable ditambah lewat JS, kanvas coretan
+   juga di-nonaktifkan sementara pointer-event-nya lewat JS) gambar jadi bisa
+   digeser/diresize/dihapus. */
+.ref-images { position: absolute; inset: 0; z-index: 2; pointer-events: none; transform-origin: 0 0; }
+.ref-img-wrap {
+  position: absolute;
+  pointer-events: none;
+  border: 1.5px dashed transparent;
+  border-radius: 8px;
+  touch-action: none;
+  transition: border-color 0.15s;
+}
+.ref-images.editable .ref-img-wrap { pointer-events: auto; border-color: var(--accent); }
+/* Tidak ada background putih paksa lagi -- PNG dengan area transparan harus
+   tetap tembus pandang (memperlihatkan teks soal di baliknya), bukan ketiban
+   kotak putih. */
+.ref-img-wrap img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 6px; }
+.ref-img-remove {
+  display: none;
+  position: absolute;
+  top: -11px; right: -11px;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--danger);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transform: scale(var(--inv, 1));
+}
+.ref-img-resize {
+  display: none;
+  position: absolute;
+  right: -6px; bottom: -6px;
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+  cursor: nwse-resize;
+  transform: scale(var(--inv, 1));
+}
+.ref-images.editable .ref-img-remove,
+.ref-images.editable .ref-img-resize { display: block; }
+
+/* Chevron navigasi -- mengambang di tepi, bukan bar penuh */
+.hud-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 15;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 50%;
+  background: var(--glass);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+.hud-nav:disabled { opacity: 0; pointer-events: none; }
+.hud-nav svg { width: 16px; height: 16px; }
+.hud-nav-prev { left: 8px; }
+.hud-nav-next { right: 8px; }
+
+/* Panel warna & ukuran -- muncul di atas dock, blur sama seperti dock */
+.panel {
+  position: absolute;
+  left: 12px; right: 12px;
+  bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+  z-index: 25;
+  background: var(--glass-strong);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-radius: 18px;
+  padding: 16px 18px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+}
+.panel-colors { display: flex; justify-content: space-between; margin-bottom: 14px; }
+.swatch {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.swatch.active { border-color: var(--ink); box-shadow: 0 0 0 2px #fff inset; }
+.panel input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+/* Dock: satu baris ikon mengambang di bawah, kaca buram */
+.dock {
+  position: absolute;
+  left: 12px; right: 12px;
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 2px;
+  background: var(--glass-strong);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-radius: 20px;
+  padding: 8px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+}
+.dock-btn {
+  flex: 1;
+  height: 46px;
+  border: none;
+  background: transparent;
+  border-radius: 14px;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.dock-btn svg { width: 21px; height: 21px; }
+.dock-btn.active { background: rgba(0, 122, 255, 0.12); color: var(--accent); }
+.dock-btn:active { opacity: 0.7; }
+.dock-sep { width: 1px; height: 26px; background: var(--divider); flex: 0 0 1px; }
+.dock-color-dot { width: 20px; height: 20px; border-radius: 50%; background: #1c1c1e; box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }
+.dock-file { position: relative; }
+
+/* Toast kecil: umpan balik gestur (undo/redo/hapus) yang tidak punya tombol. */
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(86px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 30;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(28, 28, 30, 0.86);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+  white-space: nowrap;
+}
