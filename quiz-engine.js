@@ -15,7 +15,7 @@
   // M7.2 (blueprint bagian 17): URL Web App shortener terpisah (backend-shortener/,
   // lihat PANDUAN-DEPLOY-SHORTENER.md). GANTI ke URL /exec asli setelah deploy --
   // sebelum itu diganti, mode kode pendek (M7.5, di bawah) akan selalu gagal resolve.
-  const SHORTENER_URL = "ISI_DENGAN_URL_SHORTENER_SAAT_DEPLOY";
+  const SHORTENER_URL = "https://script.google.com/macros/s/AKfycbwMtuZZUxEFe9APpdwkCY7nGZJsECwzzG5IyoXA2b8eB02N1qQhYNhtXMbB1MPhovk6/exec";
 
   let soalPG = [];      // [{no, soal, opsi:{A,B,C,D}}]
   let soalEssay = [];   // [{no, soal}]
