@@ -76,6 +76,83 @@ button { font-family: inherit; }
 }
 .gate-btn:active { opacity: 0.75; }
 
+/* ===== Selector (Bahas Apa?) ===== */
+.selector-page {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: var(--board-bg);
+}
+.selector-card { max-width: 380px; width: 100%; }
+.selector-card h1 {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  letter-spacing: -0.3px;
+  text-align: center;
+}
+.selector-desc {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 22px;
+  text-align: center;
+}
+.selector-options { display: flex; flex-direction: column; gap: 10px; }
+.selector-opt {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px var(--divider);
+  text-align: left;
+  cursor: pointer;
+}
+.selector-opt:active { opacity: 0.75; }
+.selector-opt-icon {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: rgba(0, 122, 255, 0.1);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.selector-opt-icon svg { width: 20px; height: 20px; }
+.selector-opt-label { display: flex; flex-direction: column; gap: 2px; }
+.selector-opt-label strong { font-size: 15px; font-weight: 600; }
+.selector-opt-label small { font-size: 12.5px; color: var(--muted); }
+/* Materi & KisiKata: belum ada datanya -- tetap bisa disentuh (kasih tahu
+   "segera hadir"), tapi ditandai lebih pudar supaya kelihatan beda dari
+   opsi yang sudah aktif (Bahas Soal, Papan Kosong). */
+.selector-opt-soon { opacity: 0.55; }
+.selector-opt-soon .selector-opt-icon { background: rgba(142, 142, 147, 0.12); color: var(--muted); }
+
+/* Tombol kembali dari gate ke selector */
+.gate-back {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 18px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.gate-back svg { width: 16px; height: 16px; }
+.gate-back:active { opacity: 0.6; }
+
 /* ===== Stage (board page) ===== */
 .board-page { height: 100%; }
 /* touch-action: none supaya cubit 2 jari dibaca aplikasi, bukan di-zoom browser. */
@@ -115,6 +192,7 @@ button { font-family: inherit; }
 }
 .hud-icon svg { width: 17px; height: 17px; }
 .hud-icon:active { opacity: 0.6; }
+.hud-right { display: flex; gap: 8px; }
 #clearAllBtn { color: var(--danger); }
 
 /* Board: full-bleed, tanpa kartu/border -- teks soal langsung di atas
@@ -221,20 +299,47 @@ button { font-family: inherit; }
 .hud-nav-prev { left: 8px; }
 .hud-nav-next { right: 8px; }
 
-/* Panel warna & ukuran -- muncul di atas dock, blur sama seperti dock */
+/* Submenu alat -- muncul di atas dock, blur sama seperti dock. Tinggi dibatasi
+   supaya di layar pendek (HP landscape) isinya bisa di-scroll, bukan terpotong. */
 .panel {
+  -webkit-user-select: none;
+  user-select: none;
   position: absolute;
   left: 12px; right: 12px;
   bottom: calc(78px + env(safe-area-inset-bottom, 0px));
   z-index: 25;
+  max-height: calc(100% - 140px);
+  overflow-y: auto;
   background: var(--glass-strong);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border-radius: 18px;
-  padding: 16px 18px;
+  padding: 14px 16px 10px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.12);
 }
-.panel-colors { display: flex; justify-content: space-between; margin-bottom: 14px; }
+.panel:not(.is-hidden) { animation: panel-in 0.16s ease-out; }
+@keyframes panel-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .panel:not(.is-hidden) { animation: none; } }
+
+.panel-preview {
+  display: block;
+  width: 100%; height: 56px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px var(--divider);
+}
+.panel-presets { display: flex; gap: 8px; margin-bottom: 10px; }
+.preset-chip {
+  flex: 1; height: 34px;
+  border: 0; border-radius: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--ink);
+  font: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+.preset-chip.active { background: rgba(0, 122, 255, 0.12); color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.panel-colors { display: flex; justify-content: space-between; margin-bottom: 8px; }
 .swatch {
   width: 30px; height: 30px;
   border-radius: 50%;
@@ -243,7 +348,16 @@ button { font-family: inherit; }
   cursor: pointer;
 }
 .swatch.active { border-color: var(--ink); box-shadow: 0 0 0 2px #fff inset; }
-.panel input[type="range"] { width: 100%; accent-color: var(--accent); }
+.panel-row { display: flex; align-items: center; gap: 10px; height: 36px; }
+.panel-label { flex: 0 0 92px; font-size: 13px; font-weight: 600; }
+.panel-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.panel-row output {
+  flex: 0 0 26px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 
 /* Dock: satu baris ikon mengambang di bawah, kaca buram */
 .dock {
@@ -263,6 +377,7 @@ button { font-family: inherit; }
   box-shadow: 0 6px 20px rgba(0,0,0,0.12);
 }
 .dock-btn {
+  position: relative;
   flex: 1;
   height: 46px;
   border: none;
@@ -278,7 +393,18 @@ button { font-family: inherit; }
 .dock-btn.active { background: rgba(0, 122, 255, 0.12); color: var(--accent); }
 .dock-btn:active { opacity: 0.7; }
 .dock-sep { width: 1px; height: 26px; background: var(--divider); flex: 0 0 1px; }
-.dock-color-dot { width: 20px; height: 20px; border-radius: 50%; background: #1c1c1e; box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }
+/* Garis warna kecil di bawah ikon spidol & stabilo (--c diisi dari JS). */
+.dock-btn[data-tool="pen"]::after,
+.dock-btn[data-tool="highlight"]::after {
+  content: "";
+  position: absolute;
+  left: 50%; bottom: 5px;
+  width: 14px; height: 3px;
+  margin-left: -7px;
+  border-radius: 2px;
+  background: var(--c, #1c1c1e);
+  box-shadow: 0 0 0 0.5px rgba(0,0,0,0.18);
+}
 .dock-file { position: relative; }
 
 /* Toast kecil: umpan balik gestur (undo/redo/hapus) yang tidak punya tombol. */

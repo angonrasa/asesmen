@@ -28,9 +28,97 @@
   let currentStrokes = [];
   let activeStroke = null;
   let activePointerId = null;
+  // Posisi layar (px) & timestamp goresan aktif terakhir -- dipakai
+  // onPointerMove untuk hitung kecepatan gerak (fitur Goresan Cepat).
+  let lastMoveX = 0, lastMoveY = 0, lastMoveT = 0;
   let quizKey = null; // key localStorage, turunan hash SCRIPT_URL
 
-  let tool = "pen", color = "#1c1c1e", size = 4;
+  let tool = "pen";
+
+  // ====== PENGATURAN ALAT (submenu spidol / stabilo / penghapus) ======
+  // Tiap alat punya pengaturan sendiri (warna stabilo tidak ikut warna
+  // spidol). Semua slider berskala 0-100 kecuali `size` (px halaman, 2-24).
+  //   taper      : efek lancip (khusus spidol). 0 = mati -> pena biasa rata.
+  //   dynamic    : lebar dinamis (khusus spidol) -- gerak pelan lebih tebal,
+  //                gerak cepat lebih tipis. 0 = mati -> lebar tetap.
+  //   smooth     : "Konstan" -- penghalusan sesudah jari diangkat. 0 = mati.
+  //   stabilizer : peredaman getaran real-time. 0 = mati.
+  //   quick      : "Goresan Cepat" -- seberapa banyak peredaman dilepas saat
+  //                jari bergerak cepat. 0 = peredaman sama di semua kecepatan.
+  // Nilai default kira-kira sama dengan konstanta lama, kecuali taper yang
+  // sengaja dibuat lebih lembut dari versi sebelumnya.
+  const DEFAULT_SETTINGS = {
+    pen:       { color: "#1c1c1e", size: 4, taper: 45, dynamic: 50, smooth: 40, stabilizer: 75, quick: 80 },
+    highlight: { color: "#ffd60a", size: 4, smooth: 40, stabilizer: 75, quick: 80 },
+    eraser:    { size: 4, smooth: 40, stabilizer: 75, quick: 80 }
+  };
+  // Preset satu ketuk (submenu spidol). Hanya mengubah pengaturan bentuk &
+  // kehalusan, WARNA tidak ikut berubah. Nilai bisa disetel di sini.
+  const PRESETS = {
+    tulisan: { size: 4,  taper: 35, dynamic: 50, smooth: 35, stabilizer: 55, quick: 85 },
+    sketsa:  { size: 3,  taper: 60, dynamic: 70, smooth: 20, stabilizer: 30, quick: 90 },
+    tebal:   { size: 10, taper: 20, dynamic: 25, smooth: 50, stabilizer: 70, quick: 70 }
+  };
+  const SETTINGS_KEY = "coretan_settings_v1";
+  let settings = loadSettings();
+  let activeCfg = null; // pengaturan alat yang dipakai goresan yang sedang berjalan
+  let activeSpeed = 0;  // kecepatan jari yang sudah dihaluskan (px layar/ms)
+  let activeWf = 1;     // faktor lebar titik terakhir (1 = lebar normal)
+
+  // ====== RASA MENULIS: PREDIKSI, HAPTIK, PALM REJECTION -- bisa disetel ======
+  // Prediksi ujung: garis yang SEDANG digambar disambung ke posisi jari yang
+  // sebenarnya (menutup lag stabilizer) lalu diekstrapolasi PREDICT_MS ke
+  // depan (maks PREDICT_MAX_PX px layar). Hanya tampilan sementara -- yang
+  // disimpan tetap titik hasil stabilizer.
+  const PREDICT_MS = 14;
+  const PREDICT_MAX_PX = 24;
+  const HAPTIC = { undo: 12, redo: [12, 50, 12], erase: 22 }; // ms getar
+  // Palm rejection: sentuhan (touch) diabaikan selama stylus menyentuh/melayang
+  // + PALM_GRACE_MS sesudahnya, dan sentuhan dengan area kontak >= PALM_SIZE_PX
+  // (px CSS, lebar/tinggi elips kontak dari browser) dianggap telapak.
+  const PALM_GRACE_MS = 500;
+  const PALM_SIZE_PX = 56;
+  let activeRaw = null;          // posisi jari terakhir (relatif halaman), tanpa stabilizer
+  let activeVx = 0, activeVy = 0; // kecepatan jari (px layar/ms), untuk ekstrapolasi
+  let predictTimer = null;
+  let penDown = false, lastPenT = -1e9;
+
+  // Cache tinta: semua goresan yang sudah selesai digambar SEKALI ke kanvas
+  // luar-layar (baseCanvas). Selama menulis, tiap gerakan cuma menempel cache
+  // + menggambar goresan yang sedang berjalan -- bukan menggambar ulang semua
+  // goresan. Cache dibuat ulang bila goresan berubah (undo/redo/hapus) atau
+  // view (zoom/geser/resize) berubah.
+  let baseCanvas = null, baseCtx = null, baseValid = false;
+  let baseView = { s: 1, tx: 0, ty: 0 };
+
+  function loadSettings() {
+    const out = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+    try {
+      const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+      Object.keys(out).forEach(t => {
+        if (!saved[t]) return;
+        Object.keys(out[t]).forEach(k => {
+          const v = saved[t][k];
+          if (k === "color") {
+            if (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v)) out[t][k] = v;
+          } else if (typeof v === "number" && isFinite(v)) {
+            out[t][k] = k === "size" ? Math.min(24, Math.max(2, v)) : Math.min(100, Math.max(0, v));
+          }
+        });
+      });
+    } catch (err) { /* rusak / dinonaktifkan -> pakai default */ }
+    return out;
+  }
+
+  function saveSettings() {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (err) { /* diamkan */ }
+  }
+
+  // Mode "Papan Kosong" (blueprint 20.7): satu papan tulis tunggal, tidak
+  // terikat ke soal/kuis manapun. Kunci localStorage tetap ("coretan_kosong"),
+  // bukan diturunkan dari SCRIPT_URL, supaya guru bisa lanjut nyoret dari
+  // sesi sebelumnya kapan saja dibuka lewat opsi ini.
+  let isBlank = false;
 
   // ====== GESTUR & VIEW (zoom/geser) -- bisa disetel di sini ======
   const MIN_SCALE = 0.3, MAX_SCALE = 4;
@@ -42,12 +130,45 @@
   const SCRIBBLE_PAD = 12;      // px layar: toleransi area coret-coret
 
   // Stroke stabilizer (permintaan guru: goresan "auto stabil dan konstan").
-  // Titik baru tidak langsung dipakai mentah dari posisi pointer, tapi
-  // "ditarik" sebagian ke sana dari titik sebelumnya (exponential smoothing)
-  // -- meredam getaran tangan. Makin kecil nilainya, makin rapi tapi makin
-  // ada jeda ("lag") mengikuti gerakan cepat; makin besar, makin responsif
-  // tapi makin sedikit efek perapiannya. 1.0 = mati (persis posisi pointer).
-  const STABILIZER_ALPHA = 0.45;
+  // Tiga lapis, semuanya disetel dari submenu alat (lihat settings):
+  //  - stabilizer: peredaman REAL-TIME selagi menggores. Titik baru tidak
+  //    dipakai mentah dari posisi pointer, tapi "ditarik" sebagian ke sana dari
+  //    titik sebelumnya (exponential smoothing). Makin tinggi makin rapi tapi
+  //    makin ada jeda ("lag") mengikuti jari.
+  //  - quick ("Goresan Cepat", padanan ibisPaint): begitu jari bergerak cepat,
+  //    peredaman dilepas supaya goresan tidak tertinggal jauh di belakang jari.
+  //    Interpolasi linear antara SLOW_SPEED_PX_MS dan FAST_SPEED_PX_MS (satuan:
+  //    px LAYAR per ms, dari jarak+selisih waktu antar pointermove).
+  //  - smooth ("Konstan", padanan "Stabilisator" mode Setelah ibisPaint): jalan
+  //    SESUDAH jari diangkat -- seluruh titik dihaluskan sekali lagi (moving
+  //    average ke tetangga kiri-kanan). Satuan: jumlah titik tetangga per sisi.
+  const SLOW_SPEED_PX_MS = 0.15;
+  const FAST_SPEED_PX_MS = 1.2;
+  const POST_SMOOTH_MAX_RADIUS = 8;
+
+  // ====== LEBAR DINAMIS (spidol) ======
+  // Kecepatan jari (px LAYAR/ms) -> faktor lebar titik. Pelan = lebih tebal
+  // (tinta menumpuk), cepat = lebih tipis (tinta tersapu), mirip tekanan pena
+  // di layar yang tidak punya sensor tekanan. `dyn` 0-100 = seberapa besar
+  // efeknya; pada 100 faktornya berkisar 1.4 (diam) sampai 0.5 (>=1.6 px/ms),
+  // dan sekitar 1.0 pada kecepatan menulis biasa (~0.7 px/ms).
+  const DYN_FULL_SPEED = 1.6;
+  function dynWidthTarget(speed, dyn) {
+    const t = Math.min(1, Math.max(0, speed / DYN_FULL_SPEED));
+    const e = t * t * (3 - 2 * t);
+    return 1 + (dyn / 100) * (0.4 - 0.9 * e);
+  }
+
+  // Nilai slider (0-100) -> alpha. alpha 1 = persis posisi pointer (mati).
+  // Default (75, 80) ~ konstanta lama 0.3 (pelan) dan 0.85 (cepat).
+  function stabAlphas(cfg) {
+    const slow = 1 - 0.92 * (cfg.stabilizer / 100);
+    const fast = slow + (1 - slow) * (cfg.quick / 100);
+    return { slow, fast };
+  }
+  function postSmoothRadius(cfg) {
+    return Math.round(POST_SMOOTH_MAX_RADIUS * cfg.smooth / 100);
+  }
 
   // View = zoom (s) + geser (tx, ty), dalam px layar. s=1,tx=0,ty=0 = tampilan
   // asli (persis seperti sebelum ada zoom). Koordinat stroke TETAP relatif 0..1
@@ -116,8 +237,32 @@
     }
   }
 
+  // ====== SELECTOR ("Bahas Apa?") ======
+  // Titik masuk paling awal kalau dibuka tanpa query string sama sekali
+  // (blueprint 20.7). Materi & KisiKata masih placeholder -- belum ada
+  // sumber data (tab Materi / integrasi KisiKata belum dikerjakan, 20.7/22.3).
+  function initSelector() {
+    el("selectBahasSoal").addEventListener("click", () => {
+      el("selectorPage").classList.add("is-hidden");
+      el("gatePage").classList.remove("is-hidden");
+      initGate();
+    });
+    el("selectPapanKosong").addEventListener("click", () => {
+      window.location.href = window.location.pathname + "?kosong";
+    });
+    el("selectMateri").addEventListener("click", () => {
+      alert("Bahas Materi segera hadir.");
+    });
+    el("selectKisiKata").addEventListener("click", () => {
+      alert("Bahas KisiKata segera hadir.");
+    });
+  }
+
   // ====== GATE (input link/kode, mirror homeKode di quiz-runner) ======
   function initGate() {
+    el("gateBackBtn").addEventListener("click", () => {
+      window.location.href = window.location.pathname;
+    });
     el("gateBtn").addEventListener("click", () => {
       const errEl = el("gateError");
       const raw = el("gateKode").value.trim();
@@ -190,20 +335,27 @@
 
     current = index;
     const q = allQuestions[index];
-    const isEssay = q.opsi === undefined;
 
-    let html = `<div class="q-no">Soal ${index + 1} dari ${allQuestions.length}${isEssay ? " • Essay" : ""}</div>`;
-    html += `<h2>${escapeHtml(q.soal)}</h2>`;
-    if (!isEssay) {
-      html += '<div class="q-opsi">';
-      Object.entries(q.opsi).forEach(([letter, text]) => {
-        html += `<div class="q-opsi-item"><span class="letter">${letter}</span>${escapeHtml(text)}</div>`;
-      });
-      html += "</div>";
+    if (isBlank) {
+      // Papan Kosong: tidak ada teks soal untuk ditampilkan -- cuma halaman
+      // kosong siap dicoret. Panah navigasi otomatis tersembunyi karena
+      // allQuestions cuma berisi 1 "halaman" (lihat CSS .hud-nav:disabled).
+      el("boardContent").innerHTML = "";
+      el("boardTitle").textContent = "Papan Kosong";
+    } else {
+      const isEssay = q.opsi === undefined;
+      let html = `<div class="q-no">Soal ${index + 1} dari ${allQuestions.length}${isEssay ? " • Essay" : ""}</div>`;
+      html += `<h2>${escapeHtml(q.soal)}</h2>`;
+      if (!isEssay) {
+        html += '<div class="q-opsi">';
+        Object.entries(q.opsi).forEach(([letter, text]) => {
+          html += `<div class="q-opsi-item"><span class="letter">${letter}</span>${escapeHtml(text)}</div>`;
+        });
+        html += "</div>";
+      }
+      el("boardContent").innerHTML = html;
+      el("boardTitle").textContent = `Soal ${index + 1} dari ${allQuestions.length}`;
     }
-    el("boardContent").innerHTML = html;
-
-    el("boardTitle").textContent = `Soal ${index + 1} dari ${allQuestions.length}`;
     el("prevBtn").disabled = index === 0;
     el("nextBtn").disabled = index === allQuestions.length - 1;
 
@@ -243,6 +395,7 @@
     canvas.height = Math.round(pageH * dpr);
     canvas.style.width = pageW + "px";
     canvas.style.height = pageH + "px";
+    baseValid = false;
   }
 
   // Titik layar -> koordinat relatif halaman (membalik zoom & geser).
@@ -272,7 +425,31 @@
     // Riwayat: dulu dibagi zoom saat goresan dibuat -> ketebalan konstan di
     // LAYAR, akibatnya brush yang sama jadi tipis kalau menulis saat zoom in
     // dan tebal kalau menulis saat zoom out (tidak konsisten). Jangan dikembalikan.
-    activeStroke = { tool, color, size, points: [relPoint(e)] };
+    // Mulai menulis -> submenu alat menghilang (lihat closeToolPanel).
+    closeToolPanel();
+    const cfg = settings[tool];
+    activeCfg = cfg;
+    // Titik = [x, y, faktor lebar]. Faktor lebar (elemen ke-3) hanya dipakai
+    // spidol; goresan lama tanpa elemen ini dibaca sebagai 1.
+    const p0 = relPoint(e);
+    activeRaw = [p0[0], p0[1]];
+    activeVx = 0; activeVy = 0;
+    p0.push(1);
+    activeSpeed = 0;
+    activeWf = 1;
+    activeStroke = { tool, color: cfg.color || "#000000", size: cfg.size, points: [p0] };
+    // Nilai lancip & lebar dinamis disimpan per goresan supaya goresan lama
+    // tidak berubah bentuk kalau slider digeser sesudahnya.
+    if (tool === "pen") {
+      activeStroke.taper = cfg.taper;
+      activeStroke.dyn = cfg.dynamic;
+    }
+    // Posisi layar (bukan relPoint -- itu satuan halaman yang berubah kalau
+    // di-zoom, sedangkan kecepatan mau dihitung konsisten dalam px LAYAR)
+    // + waktu, dipakai onPointerMove untuk mendeteksi "goresan cepat".
+    lastMoveX = e.clientX;
+    lastMoveY = e.clientY;
+    lastMoveT = e.timeStamp;
   }
 
   function onPointerMove(e) {
@@ -280,22 +457,61 @@
     const raw = relPoint(e);
     const pts = activeStroke.points;
     const prev = pts[pts.length - 1];
+
+    // Goresan Cepat: alpha digeser dari nilai goresan pelan ke nilai goresan
+    // cepat (lihat stabAlphas) berdasar kecepatan gerak layar sejak titik
+    // sebelumnya -- interpolasi linear, diklem ke [0,1] di kedua ujung.
+    const dt = Math.max(1, e.timeStamp - lastMoveT);
+    const ddx = e.clientX - lastMoveX, ddy = e.clientY - lastMoveY;
+    const dist = Math.hypot(ddx, ddy);
+    const speed = dist / dt;
+    activeVx = activeVx * 0.5 + (ddx / dt) * 0.5;
+    activeVy = activeVy * 0.5 + (ddy / dt) * 0.5;
+    activeRaw = raw;
+    // Jari berhenti = tidak ada pointermove lagi; hilangkan ekstrapolasi
+    // supaya garis tidak "menggantung" di depan jari.
+    clearTimeout(predictTimer);
+    predictTimer = setTimeout(() => {
+      activeVx = 0; activeVy = 0;
+      if (activeStroke) redrawCanvas();
+    }, 60);
+    lastMoveX = e.clientX;
+    lastMoveY = e.clientY;
+    lastMoveT = e.timeStamp;
+    const t = Math.min(1, Math.max(0, (speed - SLOW_SPEED_PX_MS) / (FAST_SPEED_PX_MS - SLOW_SPEED_PX_MS)));
+    const al = stabAlphas(activeCfg || settings.pen);
+    const alpha = al.slow + (al.fast - al.slow) * t;
+
     // Stabilizer: titik yang disimpan bukan `raw` mentah, tapi hasil "tarikan"
-    // sebagian dari titik sebelumnya ke arah `raw` (lihat STABILIZER_ALPHA).
+    // sebagian dari titik sebelumnya ke arah `raw` (alpha adaptif di atas).
+    // Lebar dinamis: kecepatan dihaluskan dulu (event pointermove tidak rata
+    // selang waktunya), lalu faktor lebar ikut "ditarik" pelan ke target supaya
+    // tepi goresan tidak bergerigi.
+    if (activeStroke.tool === "pen" && activeCfg && activeCfg.dynamic > 0) {
+      activeSpeed += (speed - activeSpeed) * 0.35;
+      activeWf += (dynWidthTarget(activeSpeed, activeCfg.dynamic) - activeWf) * 0.3;
+    }
     pts.push([
-      prev[0] + (raw[0] - prev[0]) * STABILIZER_ALPHA,
-      prev[1] + (raw[1] - prev[1]) * STABILIZER_ALPHA
+      prev[0] + (raw[0] - prev[0]) * alpha,
+      prev[1] + (raw[1] - prev[1]) * alpha,
+      Math.round(activeWf * 100) / 100
     ]);
-    redrawCanvas();
+    scheduleRedraw(); // maks 1x per frame (stylus bisa kirim >120 event/detik)
   }
 
   function onPointerUp(e) {
     if (!activeStroke || e.pointerId !== activePointerId) return;
     const stroke = activeStroke;
+    const rawEnd = e.type === "pointerup" ? relPoint(e) : activeRaw;
     activeStroke = null;
     activePointerId = null;
+    clearTimeout(predictTimer);
+    activeRaw = null;
 
     if (stroke.points.length > 1) {
+      // Ujung menyusul jari: stabilizer membuat titik terakhir tertinggal
+      // dari tempat jari diangkat -- sambung sampai ke posisi jari.
+      if (rawEnd) catchUpToFinger(stroke, rawEnd);
       // Shortcut hapus: coret-coret (zig-zag) dengan spidol di atas coretan
       // yang sudah ada = hapus coretan di area itu, goresan coret-coretnya
       // sendiri tidak disimpan.
@@ -303,9 +519,13 @@
         redrawCanvas();
         return;
       }
+      // Post-process (padanan mode Setelah ibisPaint): baru dihaluskan
+      // sesudah lolos cek coret-hapus di atas -- kalau dihaluskan duluan,
+      // zig-zag coret-hapus bisa ikut "dibulatkan" dan gagal terdeteksi.
+      postSmoothStroke(stroke);
       recordAction({ type: "add", stroke, index: currentStrokes.length });
       currentStrokes.push(stroke);
-      commitStrokes();
+      commitStrokes(stroke);
       return;
     }
 
@@ -315,13 +535,165 @@
     // drawStroke) alih-alih diabaikan.
     recordAction({ type: "add", stroke, index: currentStrokes.length });
     currentStrokes.push(stroke);
-    commitStrokes();
+    commitStrokes(stroke);
+  }
+
+  // Sambung titik terakhir (hasil stabilizer, tertinggal) ke posisi jari saat
+  // diangkat, dibagi jadi beberapa langkah kecil (~6px layar) supaya jadi
+  // ekor yang halus, bukan satu garis patah. Lebar mengikuti titik terakhir.
+  function catchUpToFinger(stroke, rawEnd) {
+    const pts = stroke.points;
+    const last = pts[pts.length - 1];
+    const dx = (rawEnd[0] - last[0]) * pageW * view.s;
+    const dy = (rawEnd[1] - last[1]) * pageH * view.s;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 0.5) return;
+    const steps = Math.min(10, Math.max(1, Math.round(dist / 6)));
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      pts.push([last[0] + (rawEnd[0] - last[0]) * t, last[1] + (rawEnd[1] - last[1]) * t, last[2]]);
+    }
+  }
+
+  // Versi sementara goresan aktif untuk DIGAMBAR (bukan disimpan): titik-titik
+  // stabilizer + posisi jari sebenarnya + ekstrapolasi singkat ke depan.
+  function livePreviewStroke() {
+    const pts = activeStroke.points;
+    if (!activeRaw || pts.length < 2) return activeStroke;
+    const last = pts[pts.length - 1];
+    const ext = pts.slice();
+    ext.push([activeRaw[0], activeRaw[1], last[2]]);
+    let ex = activeVx * PREDICT_MS, ey = activeVy * PREDICT_MS;
+    const m = Math.hypot(ex, ey);
+    if (m > 0.5) {
+      if (m > PREDICT_MAX_PX) { ex *= PREDICT_MAX_PX / m; ey *= PREDICT_MAX_PX / m; }
+      ext.push([activeRaw[0] + ex / (pageW * view.s), activeRaw[1] + ey / (pageH * view.s), last[2]]);
+    }
+    return Object.assign({}, activeStroke, { points: ext });
+  }
+
+  // ====== POST-PROCESS SMOOTHING (padanan "Stabilisator" mode Setelah) ======
+  // Dipanggil SEKALI di onPointerUp, sesudah goresan selesai (bukan sambil
+  // jalan seperti stabilizer). Tiap titik digeser ke rata-rata posisi
+  // titik-titik tetangganya (moving average) -- meratakan getaran kecil yang
+  // lolos dari redaman real-time, tanpa mengubah bentuk besar goresan.
+  // Titik pertama & terakhir SENGAJA tidak ikut digeser, supaya goresan tetap
+  // mulai & berakhir persis di titik jari turun/naik (endpoint presisi tetap
+  // penting, mis. buat nyambung ke goresan berikutnya).
+  function postSmoothStroke(stroke) {
+    const pts = stroke.points;
+    const r = postSmoothRadius(settings[stroke.tool] || settings.pen);
+    if (r <= 0 || pts.length < 3) return;
+    const smoothed = pts.map((p, i) => {
+      if (i === 0 || i === pts.length - 1) return p;
+      let sx = 0, sy = 0, sw = 0, n = 0;
+      for (let k = -r; k <= r; k++) {
+        const j = i + k;
+        if (j < 0 || j >= pts.length) continue;
+        sx += pts[j][0]; sy += pts[j][1];
+        sw += pts[j][2] === undefined ? 1 : pts[j][2];
+        n++;
+      }
+      return [sx / n, sy / n, Math.round(sw / n * 100) / 100];
+    });
+    stroke.points = smoothed;
   }
 
   // 3 tool (blueprint 18.2/17.7... err 18.3): pen = tinta biasa, highlight =
   // stabilo (lebih tebal, transparan, blend "multiply" supaya teks di
   // bawahnya tetap kebaca), eraser = destination-out (menghapus pixel yang
   // sudah digambar, bukan cuma menimpa warna putih).
+  // ====== GORESAN LANCIP + LEBAR DINAMIS (pen) ======
+  // Digambar sebagai satu bentuk terisi yang lebarnya berubah di sepanjang
+  // goresan. Lebar tiap titik = ketebalan x faktor lebar titik (kecepatan, lihat
+  // dynWidthTarget) x profil runcing di ujung.
+  //
+  // `a` (0-1) = nilai slider Lancip / 100; 0 = tanpa runcing (tapi lebar
+  // dinamis tetap jalan). Satu nilai mengatur dua hal:
+  //   - PANJANG runcing: `a` x 6 x ketebalan, dibatasi porsi panjang goresan
+  //     (ujung 38%, pangkal 25%) supaya goresan pendek tidak jadi "jarum" utuh.
+  //     Pangkal lebih pendek dari ujung: pena asli membuka cepat di awal dan
+  //     menyapu panjang di akhir.
+  //   - KETIPISAN ujung: 0.6 x (1-a)^3 x lebar penuh -- di atas Lancip ~35
+  //     ujungnya praktis nol, jadi runcing yang sampai ke titik, bukan dipotong.
+  // Profil runcing CEMBUNG (campuran 1-(1-t)^2 dan smoothstep): dari ujung lebar cepat membuka lalu
+  // melandai halus ke badan goresan, seperti sapuan kuas -- bukan baji lurus.
+  function drawTaperedPen(pts, w, h, lw, color, a) {
+    // Titik -> px halaman; titik yang nyaris menumpuk dibuang supaya arah
+    // tegak lurusnya tidak jadi acak.
+    const P = [];
+    for (const p of pts) {
+      const x = p[0] * w, y = p[1] * h;
+      const last = P[P.length - 1];
+      if (!last || Math.hypot(x - last[0], y - last[1]) > 0.05) {
+        P.push([x, y, p[2] === undefined ? 1 : p[2]]);
+      }
+    }
+    const n = P.length;
+    if (n < 2) return; // goresan nyaris diam di tempat -- tidak ada yang digambar
+
+    const cum = [0];
+    for (let i = 1; i < n; i++) {
+      cum.push(cum[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
+    }
+    const total = cum[n - 1];
+
+    const half = lw / 2;
+    const tip = 0.6 * Math.pow(1 - a, 3);
+    const endLen = Math.min(total * 0.42, Math.max(lw * 2 * a, total * 0.34 * a));
+    const startLen = endLen * 0.6;
+    const prof = (t) => {
+      const c = Math.min(1, Math.max(0, t));
+      const convex = 1 - (1 - c) * (1 - c);
+      const smooth = c * c * (3 - 2 * c);
+      return tip + (1 - tip) * (0.6 * convex + 0.4 * smooth);
+    };
+    const halfW = cum.map((d, i) => half * P[i][2] * Math.min(
+      startLen > 0 ? prof(d / startLen) : 1,
+      endLen > 0 ? prof((total - d) / endLen) : 1
+    ));
+
+    // Sisi kiri/kanan: tiap titik digeser tegak lurus arah gerak. Arah diambil
+    // dari titik 2 langkah sebelum & sesudahnya (bukan 1) supaya sisi goresan
+    // tidak bergerigi oleh getaran kecil.
+    const left = [], right = [];
+    for (let i = 0; i < n; i++) {
+      const p0 = P[Math.max(0, i - 2)];
+      const p1 = P[Math.min(n - 1, i + 2)];
+      const dx = p1[0] - p0[0], dy = p1[1] - p0[1];
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len, ny = dx / len;
+      left.push([P[i][0] + nx * halfW[i], P[i][1] + ny * halfW[i]]);
+      right.push([P[i][0] - nx * halfW[i], P[i][1] - ny * halfW[i]]);
+    }
+
+    // Sisi kiri maju, sisi kanan mundur, disambung jadi satu bentuk tertutup
+    // lalu diisi. Sisi digambar kurva mid-point (bukan lineTo lurus) supaya
+    // tidak berfaset.
+    const trace = (arr, first) => {
+      if (first) ctx.moveTo(arr[0][0], arr[0][1]); else ctx.lineTo(arr[0][0], arr[0][1]);
+      for (let i = 1; i < arr.length - 1; i++) {
+        ctx.quadraticCurveTo(arr[i][0], arr[i][1],
+          (arr[i][0] + arr[i + 1][0]) / 2, (arr[i][1] + arr[i + 1][1]) / 2);
+      }
+      ctx.lineTo(arr[arr.length - 1][0], arr[arr.length - 1][1]);
+    };
+    ctx.beginPath();
+    trace(left, true);
+    trace(right.slice().reverse(), false);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    // Ujung tumpul ditutup bulat, bukan dipotong lurus.
+    [0, n - 1].forEach(i => {
+      if (halfW[i] < 0.15) return;
+      ctx.beginPath();
+      ctx.arc(P[i][0], P[i][1], halfW[i], 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
   function drawStroke(stroke) {
     const w = pageW, h = pageH;
     const pts = stroke.points;
@@ -363,6 +735,24 @@
       return;
     }
 
+    // Spidol dengan Lancip > 0 atau Lebar dinamis > 0 -- lebar berubah di
+    // sepanjang goresan, meniru pena tinta asli. Keduanya 0 = jatuh ke render
+    // pena biasa di bawah (lebar rata). Digambar sebagai bentuk terisi
+    // (bukan ctx.stroke() lebar tetap) supaya ketebalannya bisa berubah di
+    // sepanjang goresan. Stabilo & penghapus SENGAJA tetap rata (stabilo
+    // memang berbentuk flat, penghapus tidak perlu efek ini) -- lanjut ke
+    // render lama di bawah.
+    const taper = stroke.tool === "pen"
+      ? (typeof stroke.taper === "number" ? stroke.taper : DEFAULT_SETTINGS.pen.taper)
+      : 0;
+    const dyn = stroke.tool === "pen" && stroke.dyn > 0;
+    if (taper > 0 || dyn) {
+      drawTaperedPen(pts, w, h, lw, stroke.color, taper / 100);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+      return;
+    }
+
     // Mid-point quadratic smoothing: tiap titik jadi titik kontrol menuju
     // titik tengah ke titik berikutnya, bukan disambung garis lurus (lineTo)
     // -- menghaluskan sudut-sudut kecil hasil tangan bergetar, melengkapi
@@ -383,13 +773,51 @@
     ctx.globalAlpha = 1;
   }
 
+  function baseIsCurrent() {
+    return baseValid && baseView.s === view.s && baseView.tx === view.tx && baseView.ty === view.ty;
+  }
+
+  // Gambar ulang SEMUA goresan selesai ke cache luar-layar (drawStroke memakai
+  // `ctx` global, jadi ditukar sebentar -- pola sama dengan drawPanelPreview).
+  function renderBase() {
+    const dpr = window.devicePixelRatio || 1;
+    if (!baseCanvas) { baseCanvas = document.createElement("canvas"); baseCtx = baseCanvas.getContext("2d"); }
+    if (baseCanvas.width !== canvas.width || baseCanvas.height !== canvas.height) {
+      baseCanvas.width = canvas.width;
+      baseCanvas.height = canvas.height;
+    }
+    baseCtx.setTransform(1, 0, 0, 1, 0, 0);
+    baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+    baseCtx.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.tx, dpr * view.ty);
+    const real = ctx;
+    ctx = baseCtx;
+    try { currentStrokes.forEach(drawStroke); } finally { ctx = real; }
+    baseView = { s: view.s, tx: view.tx, ty: view.ty };
+    baseValid = true;
+  }
+
+  // Tempel satu goresan baru ke cache (urutan tetap benar: goresan baru selalu
+  // paling akhir), tanpa membangun ulang cache.
+  function drawOnBase(stroke) {
+    const dpr = window.devicePixelRatio || 1;
+    baseCtx.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.tx, dpr * view.ty);
+    const real = ctx;
+    ctx = baseCtx;
+    try { drawStroke(stroke); } finally { ctx = real; }
+  }
+
   function redrawCanvas() {
     const dpr = window.devicePixelRatio || 1;
+    if (!baseIsCurrent()) renderBase();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = 1;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.tx, dpr * view.ty);
-    currentStrokes.forEach(drawStroke);
-    if (activeStroke) drawStroke(activeStroke);
+    ctx.drawImage(baseCanvas, 0, 0);
+    if (activeStroke) {
+      ctx.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.tx, dpr * view.ty);
+      drawStroke(livePreviewStroke());
+    }
   }
 
   // Selama gestur, redraw dibatasi 1x per frame supaya cubit tetap mulus.
@@ -402,11 +830,11 @@
   // ====== VIEW: ZOOM & GESER ======
   function clampView() {
     view.s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, view.s));
-    // Halaman asli minimal 80px tetap kelihatan, supaya tidak "tersesat" di
-    // area kosong -- tapi tetap bisa menjangkau ruang luas di sekelilingnya.
-    const minVis = 80;
-    view.tx = Math.min(pageW - minVis, Math.max(minVis - pageW * view.s, view.tx));
-    view.ty = Math.min(pageH - minVis, Math.max(minVis - pageH * view.s, view.ty));
+    // Geser SENGAJA tidak diklem ke suatu batas "halaman" lagi -- guru boleh
+    // menjelajah bebas ke segala arah tanpa mentok, di semua mode (soal
+    // ataupun Papan Kosong). Supaya tidak tersesat, ada tombol reset ke
+    // ukuran normal (lihat resetViewBtn di initToolbar) alih-alih dibatasi
+    // otomatis seperti sebelumnya.
   }
 
   // Teks soal & gambar referensi ikut transform CSS yang sama dengan canvas.
@@ -446,11 +874,15 @@
 
   // currentStrokes selalu dimutasi di tempat (splice/push) supaya tetap satu
   // referensi dengan strokesByQuiz[no]; fungsi ini yang menyimpan & menggambar.
-  function commitStrokes() {
+  // `appended` = goresan yang baru saja ditambahkan di akhir daftar: cukup
+  // ditempel ke cache. Perubahan lain (undo/redo/hapus) membuang cache.
+  function commitStrokes(appended) {
     const no = allQuestions[current].no;
     if (currentStrokes.length) strokesByQuiz[no] = currentStrokes;
     else delete strokesByQuiz[no];
     saveStrokesToStorage();
+    if (appended && baseIsCurrent()) drawOnBase(appended);
+    else baseValid = false;
     redrawCanvas();
   }
 
@@ -460,7 +892,7 @@
     if (!action) {
       // Riwayat kosong (mis. halaman baru dibuka ulang, coretan lama dimuat
       // dari localStorage): mundurkan coretan terakhir yang tersimpan.
-      if (!currentStrokes.length) { showToast("Tidak ada yang bisa di-undo"); return; }
+      if (!currentStrokes.length) { showToast("Tidak ada yang bisa di-undo"); return false; }
       action = { type: "add", stroke: currentStrokes[currentStrokes.length - 1], index: currentStrokes.length - 1 };
     }
     if (action.type === "add") {
@@ -476,12 +908,13 @@
     st.redo.push(action);
     commitStrokes();
     showToast("Undo");
+    return true;
   }
 
   function doRedo() {
     const st = stacksFor(allQuestions[current].no);
     const action = st.redo.pop();
-    if (!action) { showToast("Tidak ada yang bisa di-redo"); return; }
+    if (!action) { showToast("Tidak ada yang bisa di-redo"); return false; }
     if (action.type === "add") {
       currentStrokes.splice(Math.min(action.index, currentStrokes.length), 0, action.stroke);
     } else {
@@ -493,6 +926,13 @@
     st.undo.push(action);
     commitStrokes();
     showToast("Redo");
+    return true;
+  }
+
+  // Getar singkat sebagai konfirmasi gestur tak terlihat. Diam-diam tidak
+  // melakukan apa-apa di perangkat/browser tanpa Vibration API (mis. iOS).
+  function haptic(pattern) {
+    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (err) { /* diamkan */ }
   }
 
   let toastTimer = null;
@@ -575,6 +1015,7 @@
     recordAction({ type: "remove", items });
     commitStrokes();
     showToast("Coretan dihapus");
+    haptic(HAPTIC.erase);
     return true;
   }
 
@@ -598,17 +1039,35 @@
     window.addEventListener("pointermove", onTouchMove);
     window.addEventListener("pointerup", onTouchEnd);
     window.addEventListener("pointercancel", onTouchEnd);
-    window.addEventListener("blur", () => { touches.clear(); gesture = null; gestureLock = false; });
+    window.addEventListener("blur", () => { touches.clear(); gesture = null; gestureLock = false; penDown = false; });
     board.addEventListener("wheel", onWheel, { passive: false });
   }
 
+  // Palm rejection. Stylus menyentuh/melayang -> semua sentuhan jari yang ada
+  // dan yang menyusul diabaikan (telapak yang menempel saat menulis).
+  function penNear(now) {
+    return penDown || (now - lastPenT) < PALM_GRACE_MS;
+  }
+  function isPalmLike(e) {
+    return Math.max(e.width || 0, e.height || 0) >= PALM_SIZE_PX;
+  }
+
   function onTouchDown(e) {
+    if (e.pointerType === "pen") {
+      penDown = true;
+      lastPenT = e.timeStamp;
+      touches.forEach(v => { v.ignored = true; });
+      if (gesture) { gesture = null; gestureLock = true; }
+      return;
+    }
     if (e.pointerType !== "touch") return;
     const t = { x: e.clientX, y: e.clientY, t0: e.timeStamp, ignored: false };
     const valid = [...touches.values()].filter(v => !v.ignored);
 
     let startsGesture = false;
-    if (gestureLock || gesture || valid.length >= 2) {
+    if (penNear(e.timeStamp) || isPalmLike(e)) {
+      t.ignored = true;                        // telapak / sentuhan dekat stylus
+    } else if (gestureLock || gesture || valid.length >= 2) {
       t.ignored = true;                        // jari ke-3 / sisa jari setelah gestur
     } else if (valid.length === 1) {
       if (t.t0 - valid[0].t0 <= PAIR_MAX_GAP_MS) startsGesture = true;
@@ -636,6 +1095,7 @@
   }
 
   function onTouchMove(e) {
+    if (e.pointerType === "pen") { lastPenT = e.timeStamp; return; } // termasuk melayang
     if (e.pointerType !== "touch") return;
     const t = touches.get(e.pointerId);
     if (!t) return;
@@ -669,6 +1129,7 @@
   }
 
   function onTouchEnd(e) {
+    if (e.pointerType === "pen") { penDown = false; lastPenT = e.timeStamp; return; }
     if (e.pointerType !== "touch") return;
     if (!touches.has(e.pointerId)) return;
 
@@ -692,10 +1153,10 @@
     clearTimeout(tapTimer);
     if (tapCount >= 2) {
       tapCount = 0;
-      doRedo();
+      if (doRedo()) haptic(HAPTIC.redo);
       return;
     }
-    tapTimer = setTimeout(() => { tapCount = 0; doUndo(); }, DOUBLE_TAP_MS);
+    tapTimer = setTimeout(() => { tapCount = 0; if (doUndo()) haptic(HAPTIC.undo); }, DOUBLE_TAP_MS);
   }
 
   // Mouse/trackpad (TV + mouse, desktop): Ctrl+scroll (atau pinch trackpad) =
@@ -721,12 +1182,113 @@
   // disentuh/digeser/diresize HANYA saat tool ini aktif (lihat class
   // .editable di CSS) -- di luar itu gambar "tembus" terhadap sentuhan
   // supaya tidak menghalangi goresan pena/stabilo/penghapus di atasnya.
+  // Baris submenu yang tampil per alat (data-key di index.html).
+  const PANEL_ROWS = {
+    pen: ["preset", "color", "size", "taper", "dynamic", "smooth", "stabilizer", "quick"],
+    highlight: ["color", "size", "smooth", "stabilizer", "quick"],
+    eraser: ["size"]
+  };
+  let panelOpen = false;
+
+  function openToolPanel() {
+    panelOpen = true;
+    el("toolPanel").classList.remove("is-hidden");
+    syncToolPanel();
+  }
+
+  function closeToolPanel() {
+    panelOpen = false;
+    const panel = el("toolPanel");
+    if (panel) panel.classList.add("is-hidden");
+  }
+
+  // Isi submenu = pengaturan alat yang aktif: baris yang relevan, nilai
+  // slider, swatch aktif, dan pratinjau goresan.
+  function syncToolPanel() {
+    const cfg = settings[tool];
+    const rows = PANEL_ROWS[tool];
+    if (!cfg || !rows) return;
+    const panel = el("toolPanel");
+    panel.querySelectorAll("[data-key]").forEach(row => {
+      row.classList.toggle("is-hidden", !rows.includes(row.dataset.key));
+    });
+    Object.entries({ size: "setSize", taper: "setTaper", dynamic: "setDyn", smooth: "setSmooth", stabilizer: "setStab", quick: "setQuick" })
+      .forEach(([key, id]) => {
+        if (!(key in cfg)) return;
+        el(id).value = cfg[key];
+        panel.querySelector('[data-key="' + key + '"] output').textContent = cfg[key];
+      });
+    panel.querySelectorAll(".swatch").forEach(b => {
+      b.classList.toggle("active", !!cfg.color && b.dataset.color.toLowerCase() === cfg.color.toLowerCase());
+    });
+    el("panelPreview").classList.toggle("is-hidden", tool === "eraser");
+    updatePresetChips();
+    drawPanelPreview();
+  }
+
+  // Chip preset menyala kalau semua nilai slider spidol persis sama dengan
+  // preset itu (otomatis mati begitu ada slider yang digeser).
+  function updatePresetChips() {
+    document.querySelectorAll(".preset-chip").forEach(b => {
+      const p = PRESETS[b.dataset.preset];
+      const on = tool === "pen" && !!p && Object.keys(p).every(k => settings.pen[k] === p[k]);
+      b.classList.toggle("active", on);
+    });
+  }
+
+  // Pratinjau memakai drawStroke yang SAMA dengan goresan asli (kanvas
+  // ctx ditukar sebentar) -- jadi yang terlihat di sini persis hasil menulis.
+  // Titik contoh dinyatakan relatif ke pageW/pageH karena drawStroke
+  // mengalikannya dengan ukuran halaman. Stabilizer/Konstan/Goresan Cepat
+  // bergantung pada gerak jari, jadi tidak bisa dipratinjau statis.
+  function drawPanelPreview() {
+    const cv = el("panelPreview");
+    if (!cv || tool === "eraser" || !pageW || !pageH) return;
+    const W = cv.clientWidth, H = cv.clientHeight;
+    if (!W || !H) return; // panel sedang tersembunyi
+    const dpr = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) {
+      cv.width = Math.round(W * dpr);
+      cv.height = Math.round(H * dpr);
+    }
+    const pctx = cv.getContext("2d");
+    pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    pctx.clearRect(0, 0, W, H);
+    const N = 56, pts = [];
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const x = 20 + t * (W - 40);
+      const y = H / 2 + Math.sin(t * Math.PI * 2.6) * H * 0.2 * (0.6 + 0.4 * t);
+      // Kecepatan contoh: pelan di awal, cepat di tengah, pelan lagi di akhir.
+      const wf = tool === "pen" ? dynWidthTarget(0.05 + 1.5 * Math.sin(t * Math.PI), settings.pen.dynamic) : 1;
+      pts.push([x / pageW, y / pageH, wf]);
+    }
+    const cfg = settings[tool];
+    const sample = { tool, color: cfg.color, size: cfg.size, points: pts };
+    if (tool === "pen") { sample.taper = cfg.taper; sample.dyn = cfg.dynamic; }
+    const real = ctx;
+    ctx = pctx;
+    try { drawStroke(sample); } finally { ctx = real; }
+  }
+
+  // Titik warna kecil di bawah ikon spidol/stabilo (pengganti tombol warna
+  // yang dulu ada di dock).
+  function updateDockColors() {
+    document.querySelectorAll(".dock-btn[data-tool]").forEach(b => {
+      const cfg = settings[b.dataset.tool];
+      if (cfg && cfg.color) b.style.setProperty("--c", cfg.color);
+    });
+  }
+
   function setTool(t) {
     tool = t;
     document.querySelectorAll(".dock-btn[data-tool]").forEach(b => {
       b.classList.toggle("active", b.dataset.tool === t);
     });
     el("refImages").classList.toggle("editable", t === "select");
+    // Submenu ikut alat: alat tanpa submenu (pilih gambar) menutupnya, alat
+    // lain (mis. dari spidol pindah ke stabilo) memuat ulang isinya.
+    if (!PANEL_ROWS[t]) closeToolPanel(); else if (panelOpen) syncToolPanel();
     // Kanvas coretan sekarang di layer PALING ATAS (z-index tertinggi, supaya
     // goresan selalu kelihatan di atas gambar referensi) -- kalau dibiarkan
     // begitu saat tool "Pilih Gambar" aktif, kanvas akan menelan semua
@@ -736,41 +1298,80 @@
   }
 
   function initToolbar() {
+    // Reset ke ukuran normal (s=1, tx=0, ty=0) -- pengganti klem geser lama
+    // (clampView) yang sekarang dihapus supaya guru bebas menjelajah ke
+    // segala arah; tombol ini jadi satu-satunya cara "pulang" kalau tersesat.
+    el("resetViewBtn").addEventListener("click", () => {
+      view = { s: 1, tx: 0, ty: 0 };
+      applyView(true);
+    });
+
     document.querySelectorAll(".dock-btn[data-tool]").forEach(btn => {
-      btn.addEventListener("click", () => setTool(btn.dataset.tool));
+      btn.addEventListener("click", () => {
+        const t = btn.dataset.tool;
+        const wasActive = tool === t;
+        setTool(t);
+        if (!PANEL_ROWS[t]) return;
+        // Ketuk alat yang sedang terbuka submenunya = tutup; selain itu buka.
+        if (wasActive && panelOpen) closeToolPanel(); else openToolPanel();
+      });
     });
     setTool(tool); // sinkronkan class .editable di awal (tool default = "pen")
 
-    // Panel warna & ukuran: progressive disclosure -- tersembunyi sampai
-    // tombol titik warna (colorToggle) di dock disentuh, ditutup lagi
-    // otomatis setelah pilih warna supaya dock tidak penuh menu terus.
-    const panel = el("colorPanel");
-    el("colorToggle").addEventListener("click", () => {
-      panel.classList.toggle("is-hidden");
+    // Submenu alat: muncul saat tombol alat diketuk, hilang begitu mulai
+    // menulis (lihat onPointerDown) atau pindah ke alat tanpa submenu.
+    const SLIDERS = { size: "setSize", taper: "setTaper", dynamic: "setDyn", smooth: "setSmooth", stabilizer: "setStab", quick: "setQuick" };
+    Object.keys(SLIDERS).forEach(key => {
+      const input = el(SLIDERS[key]);
+      input.addEventListener("input", () => {
+        const v = Number(input.value);
+        settings[tool][key] = v;
+        el("toolPanel").querySelector('[data-key="' + key + '"] output').textContent = v;
+        updatePresetChips();
+        drawPanelPreview();
+      });
+      input.addEventListener("change", saveSettings);
+    });
+
+    document.querySelectorAll(".preset-chip").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const p = PRESETS[btn.dataset.preset];
+        if (!p || tool !== "pen") return;
+        Object.assign(settings.pen, p); // warna tidak ikut
+        syncToolPanel();
+        saveSettings();
+      });
     });
 
     document.querySelectorAll(".swatch").forEach(btn => {
       btn.addEventListener("click", () => {
-        document.querySelectorAll(".swatch").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        color = btn.dataset.color;
-        el("colorDot").style.background = color;
-        panel.classList.add("is-hidden");
+        if (!settings[tool] || !("color" in settings[tool])) return;
+        settings[tool].color = btn.dataset.color;
+        syncToolPanel();
+        updateDockColors();
+        saveSettings();
       });
     });
-
-    el("sizeRange").addEventListener("input", (e) => { size = Number(e.target.value); });
+    updateDockColors();
 
     // M8.4: "Hapus Semua Coretan" -- beda dari tool penghapus/eraser (yang
     // cuma menghapus sebagian coretan di satu soal). Ini menghapus SEMUA
     // soal di kuis ini sekaligus, makanya perlu konfirmasi.
     el("clearAllBtn").addEventListener("click", () => {
-      if (!confirm("Hapus semua coretan di SEMUA soal kuis ini? Tidak bisa dibatalkan.")) return;
+      // Papan Kosong tidak "berganti" saat navigasi seperti soal -- satu-
+      // satunya cara memulai halaman baru adalah tombol ini (blueprint 20.7,
+      // "Bersihkan Layar"). Pesannya disesuaikan supaya jelas beda dari
+      // "Hapus Semua Coretan" yang di-scope ke satu kuis (M8.4).
+      const msg = isBlank
+        ? "Bersihkan papan kosong ini? Tidak bisa dibatalkan."
+        : "Hapus semua coretan di SEMUA soal kuis ini? Tidak bisa dibatalkan.";
+      if (!confirm(msg)) return;
       strokesByQuiz = {};
       currentStrokes = [];
       Object.keys(undoStacks).forEach(k => delete undoStacks[k]);
       Object.keys(redoStacks).forEach(k => delete redoStacks[k]);
       try { localStorage.removeItem(quizKey); } catch (err) { /* diamkan */ }
+      baseValid = false;
       redrawCanvas();
     });
 
@@ -887,15 +1488,53 @@
     wrap.style.height = ref.h * 100 + "%";
   }
 
+  // ====== PAPAN KOSONG (blueprint 20.7) ======
+  // Tidak butuh SCRIPT_URL/soal sama sekali -- langsung buka papan dengan
+  // 1 "halaman" sintetis (no: "kosong") supaya semua fungsi lain (stroke,
+  // undo/redo, gambar referensi, dst) yang sudah mengasumsikan
+  // allQuestions[current].no tetap jalan apa adanya, tanpa cabang khusus.
+  function enterBlankBoard() {
+    isBlank = true;
+    el("selectorPage").classList.add("is-hidden");
+    el("gatePage").classList.add("is-hidden");
+    el("boardPage").classList.remove("is-hidden");
+
+    initCanvas();
+    initGestures();
+    initToolbar();
+
+    allQuestions = [{ no: "kosong" }];
+    quizKey = "coretan_kosong";
+    loadStrokesFromStorage();
+    renderQuestion(0);
+  }
+
   // ====== INIT ======
   document.addEventListener("DOMContentLoaded", async () => {
-    if (!window.location.search) {
-      initGate();
+    const rawQuery = window.location.search.startsWith("?") ? window.location.search.slice(1) : "";
+
+    // Tanpa query string sama sekali: titik masuk paling awal, tampilkan
+    // selector "Bahas Apa?" (blueprint 20.7) alih-alih langsung gate seperti
+    // sebelumnya.
+    if (!rawQuery) {
+      initSelector();
       return;
     }
-    // Bug lama: pakai atribut `hidden` di sini kalah spesifisitas lawan CSS
-    // .gate{display:flex} / .board-page{...} -- dua halaman kelihatan
-    // bersamaan. Class .is-hidden{display:none!important} di CSS selalu menang.
+
+    // "?kosong": dipicu dari selector (lihat initSelector) -- reload dengan
+    // query ini supaya bisa langsung dibuka lagi lain kali tanpa lewat
+    // selector dulu (mis. dibookmark), sama seperti pola ?src=/?<kode>.
+    if (rawQuery === "kosong") {
+      enterBlankBoard();
+      return;
+    }
+
+    // Flow kuis biasa (?src=... atau ?<kode>, lewat gate atau link langsung
+    // dari guru/Wizard). Bug lama: pakai atribut `hidden` di sini kalah
+    // spesifisitas lawan CSS .gate{display:flex} / .board-page{...} -- dua
+    // halaman kelihatan bersamaan. Class .is-hidden{display:none!important}
+    // di CSS selalu menang.
+    el("selectorPage").classList.add("is-hidden");
     el("gatePage").classList.add("is-hidden");
     el("boardPage").classList.remove("is-hidden");
 

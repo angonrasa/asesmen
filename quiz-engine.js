@@ -338,7 +338,11 @@
 
   function renderResult(nama, kelas, data) {
     el("studentInfo").textContent = `${nama} • ${kelas}`;
-    el("score").textContent = `${data.skor}/${data.totalSoalPG * 10}`;
+    // Perbaikan 20 Sep 2026 (blueprint 21.2.2): skor sekarang skala 0-100 dari
+    // server (field "skorMaks"), bukan lagi dihitung di sini sebagai totalSoalPG*10.
+    // Fallback ke 100 kalau backend guru belum redeploy Code.gs versi baru (field
+    // "skorMaks" belum ada di respons) -- tetap tampil masuk akal, bukan NaN.
+    el("score").textContent = `${data.skor}/${data.skorMaks || 100}`;
 
     let reviewHtml = "<h3>Hasil Pilihan Ganda</h3>";
     (data.review || []).forEach(r => {

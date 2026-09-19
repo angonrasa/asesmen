@@ -8,13 +8,54 @@
 </head>
 <body>
 <div class="app">
-  <!-- Gate: tampil kalau dibuka tanpa ?src=/?<kode> sama sekali. Ditoggle
+  <!-- Selector: tampil kalau dibuka tanpa query string sama sekali (titik
+       masuk paling awal). 4 kandidat konten yang bisa dibahas di papan tulis
+       (blueprint 20.7) -- Materi & KisiKata masih placeholder (belum ada
+       datanya), Bahas Soal & Papan Kosong sudah aktif. Ditoggle lewat class
+       .is-hidden, sama seperti gate/board. -->
+  <section class="selector-page" id="selectorPage">
+    <div class="selector-card">
+      <h1>Bahas Apa?</h1>
+      <p class="selector-desc">Pilih konten yang mau dibahas di papan tulis.</p>
+      <div class="selector-options">
+        <button class="selector-opt" id="selectBahasSoal" type="button">
+          <span class="selector-opt-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L10 17l-4 1 1-4Z"/><path d="M13 5l3 3"/></svg>
+          </span>
+          <span class="selector-opt-label"><strong>Bahas Soal</strong><small>Tempel link atau kode kuis</small></span>
+        </button>
+        <button class="selector-opt selector-opt-soon" id="selectMateri" type="button">
+          <span class="selector-opt-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>
+          </span>
+          <span class="selector-opt-label"><strong>Bahas Materi</strong><small>Segera hadir</small></span>
+        </button>
+        <button class="selector-opt selector-opt-soon" id="selectKisiKata" type="button">
+          <span class="selector-opt-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
+          </span>
+          <span class="selector-opt-label"><strong>Bahas KisiKata</strong><small>Segera hadir</small></span>
+        </button>
+        <button class="selector-opt" id="selectPapanKosong" type="button">
+          <span class="selector-opt-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 18v3"/></svg>
+          </span>
+          <span class="selector-opt-label"><strong>Papan Kosong</strong><small>Mengajar bebas / rekam konten</small></span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Gate: tampil kalau opsi "Bahas Soal" dipilih dari selector. Ditoggle
        lewat class .is-hidden di JS -- SENGAJA tidak pakai atribut `hidden`
        lagi (bug sebelumnya: CSS .gate{display:flex} menang lawan aturan
        bawaan browser [hidden]{display:none}, jadi dua halaman kelihatan
        bersamaan). .is-hidden{display:none!important} di CSS selalu menang. -->
-  <section class="gate" id="gatePage">
+  <section class="gate is-hidden" id="gatePage">
     <div class="gate-card">
+      <button class="gate-back" id="gateBackBtn" type="button" aria-label="Kembali">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg> Kembali
+      </button>
       <div class="gate-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L10 17l-4 1 1-4Z"/><path d="M13 5l3 3"/></svg>
       </div>
@@ -35,9 +76,14 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
         </button>
         <div class="hud-title" id="boardTitle">Memuat…</div>
-        <button class="hud-icon" id="clearAllBtn" aria-label="Hapus semua coretan">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-        </button>
+        <div class="hud-right">
+          <button class="hud-icon" id="resetViewBtn" aria-label="Kembali ke ukuran normal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4"/><path d="M20 9V5a1 1 0 0 0-1-1h-4"/><path d="M4 15v4a1 1 0 0 0 1 1h4"/><path d="M20 15v4a1 1 0 0 1-1 1h-4"/></svg>
+          </button>
+          <button class="hud-icon" id="clearAllBtn" aria-label="Hapus semua coretan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+          </button>
+        </div>
       </header>
 
       <div class="board" id="board">
@@ -55,12 +101,18 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
       </button>
 
-      <!-- Panel warna & ukuran -- tersembunyi sampai tombol warna (colorToggle)
-           di dock disentuh. Progressive disclosure: tool yang jarang diganti
-           (warna, ukuran) tidak ikut mejeng terus di dock utama. -->
-      <div class="panel is-hidden" id="colorPanel">
-        <div class="panel-colors">
-          <button class="swatch active" data-color="#1c1c1e" style="background:#1c1c1e" aria-label="Hitam"></button>
+      <!-- Submenu alat -- muncul saat tombol spidol/stabilo/penghapus diketuk,
+           hilang begitu mulai menulis. Baris yang tampil bergantung alatnya
+           (lihat PANEL_ROWS di coretan-engine.js). -->
+      <div class="panel is-hidden" id="toolPanel" role="group" aria-label="Pengaturan alat">
+        <canvas class="panel-preview" id="panelPreview" aria-hidden="true"></canvas>
+        <div class="panel-presets" data-key="preset" role="group" aria-label="Preset spidol">
+          <button type="button" class="preset-chip" data-preset="tulisan">Tulisan</button>
+          <button type="button" class="preset-chip" data-preset="sketsa">Sketsa</button>
+          <button type="button" class="preset-chip" data-preset="tebal">Tebal</button>
+        </div>
+        <div class="panel-colors" data-key="color">
+          <button class="swatch" data-color="#1c1c1e" style="background:#1c1c1e" aria-label="Hitam"></button>
           <button class="swatch" data-color="#ff453a" style="background:#ff453a" aria-label="Merah"></button>
           <button class="swatch" data-color="#ff9f0a" style="background:#ff9f0a" aria-label="Oranye"></button>
           <button class="swatch" data-color="#ffd60a" style="background:#ffd60a" aria-label="Kuning"></button>
@@ -68,7 +120,36 @@
           <button class="swatch" data-color="#0a84ff" style="background:#0a84ff" aria-label="Biru"></button>
           <button class="swatch" data-color="#bf5af2" style="background:#bf5af2" aria-label="Ungu"></button>
         </div>
-        <input type="range" id="sizeRange" min="2" max="24" value="4" aria-label="Ukuran">
+        <label class="panel-row" data-key="size">
+          <span class="panel-label">Ukuran</span>
+          <input type="range" id="setSize" min="2" max="24" step="1" value="4">
+          <output>4</output>
+        </label>
+        <label class="panel-row" data-key="taper">
+          <span class="panel-label">Lancip</span>
+          <input type="range" id="setTaper" min="0" max="100" step="1" value="45">
+          <output>45</output>
+        </label>
+        <label class="panel-row" data-key="dynamic">
+          <span class="panel-label">Lebar dinamis</span>
+          <input type="range" id="setDyn" min="0" max="100" step="1" value="50">
+          <output>50</output>
+        </label>
+        <label class="panel-row" data-key="smooth">
+          <span class="panel-label">Konstan</span>
+          <input type="range" id="setSmooth" min="0" max="100" step="1" value="40">
+          <output>40</output>
+        </label>
+        <label class="panel-row" data-key="stabilizer">
+          <span class="panel-label">Stabilizer</span>
+          <input type="range" id="setStab" min="0" max="100" step="1" value="75">
+          <output>75</output>
+        </label>
+        <label class="panel-row" data-key="quick">
+          <span class="panel-label">Goresan cepat</span>
+          <input type="range" id="setQuick" min="0" max="100" step="1" value="80">
+          <output>80</output>
+        </label>
       </div>
 
       <!-- Umpan balik singkat untuk gestur 2 jari (undo/redo) & coret-hapus. -->
@@ -88,9 +169,6 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l6.2 16.2 2-6.4 6.4-2L5 3Z"/></svg>
         </button>
         <span class="dock-sep"></span>
-        <button class="dock-btn" id="colorToggle" aria-label="Warna & ukuran">
-          <span class="dock-color-dot" id="colorDot"></span>
-        </button>
         <label class="dock-btn dock-file" aria-label="Tambah gambar referensi">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.4"/><path d="M21 15.5l-4.5-4.5-4 4-3-3-5.5 5.5"/></svg>
           <input type="file" id="imgInput" accept="image/*" hidden>
