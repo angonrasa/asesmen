@@ -72,6 +72,21 @@
   // disimpan tetap titik hasil stabilizer.
   const PREDICT_MS = 14;
   const PREDICT_MAX_PX = 24;
+
+  // ====== PERFORMA DI LAYAR BESAR (TV IFP 4K) ======
+  // Kanvas gambar sebesar layar x devicePixelRatio -> di TV 4K itu 3840x2160
+  // (8,3 juta piksel) dan GPU kelas menengah-bawah (mis. Mali-G52) kewalahan
+  // kalau seluruhnya dibersihkan + ditempel ulang tiap frame. Dua pengaman:
+  //  - MAX_CANVAS_SIDE: sisi terpanjang kanvas (px fisik) dibatasi segini,
+  //    sisanya diskalakan lewat CSS. 2560 = ~56% piksel dari 4K dan tulisan
+  //    tetap tajam; turunkan ke 1920 kalau masih berat. HP tidak terpengaruh.
+  //  - Selama menulis, hanya PERSEGI KECIL di sekitar goresan aktif yang
+  //    dibersihkan & digambar ulang (lihat redrawLive), bukan seluruh kanvas.
+  // LOW_LATENCY_CANVAS: petunjuk `desynchronized` ke browser (kurangi jeda
+  // sentuh -> layar). Diabaikan kalau tidak didukung. Kalau di TV muncul
+  // kedip / garis robek, ganti jadi false.
+  const MAX_CANVAS_SIDE = 2560;
+  const LOW_LATENCY_CANVAS = true;
   const HAPTIC = { undo: 12, redo: [12, 50, 12], erase: 22 }; // ms getar
   // Palm rejection: sentuhan (touch) diabaikan selama stylus menyentuh/melayang
   // + PALM_GRACE_MS sesudahnya, dan sentuhan dengan area kontak >= PALM_SIZE_PX
@@ -89,6 +104,8 @@
   // goresan. Cache dibuat ulang bila goresan berubah (undo/redo/hapus) atau
   // view (zoom/geser/resize) berubah.
   let baseCanvas = null, baseCtx = null, baseValid = false;
+  let cvScale = 1;      // rasio px kanvas / px CSS (= dpr yang sudah dibatasi MAX_CANVAS_SIDE)
+  let liveRect = null;  // area kanvas (px) yang terakhir digambari goresan aktif; null = kanvas == cache
   let baseView = { s: 1, tx: 0, ty: 0 };
 
   function loadSettings() {
@@ -371,7 +388,7 @@
   // ====== CANVAS: SETUP & GAMBAR ======
   function initCanvas() {
     canvas = el("boardCanvas");
-    ctx = canvas.getContext("2d");
+    ctx = canvas.getContext("2d", LOW_LATENCY_CANVAS ? { desynchronized: true } : undefined);
 
     window.addEventListener("resize", () => { resizeCanvas(); applyView(true); });
 
@@ -390,12 +407,16 @@
     const board = canvas.parentElement;
     pageW = board.clientWidth;
     pageH = board.clientHeight;
-    const dpr = window.devicePixelRatio || 1;
+    let dpr = window.devicePixelRatio || 1;
+    const longSide = Math.max(pageW, pageH) * dpr;
+    if (longSide > MAX_CANVAS_SIDE) dpr *= MAX_CANVAS_SIDE / longSide;
+    cvScale = dpr;
     canvas.width = Math.round(pageW * dpr);
     canvas.height = Math.round(pageH * dpr);
     canvas.style.width = pageW + "px";
     canvas.style.height = pageH + "px";
     baseValid = false;
+    liveRect = null;
   }
 
   // Titik layar -> koordinat relatif halaman (membalik zoom & geser).
@@ -473,7 +494,7 @@
     clearTimeout(predictTimer);
     predictTimer = setTimeout(() => {
       activeVx = 0; activeVy = 0;
-      if (activeStroke) redrawCanvas();
+      if (activeStroke) redrawLive();
     }, 60);
     lastMoveX = e.clientX;
     lastMoveY = e.clientY;
@@ -496,7 +517,7 @@
       prev[1] + (raw[1] - prev[1]) * alpha,
       Math.round(activeWf * 100) / 100
     ]);
-    scheduleRedraw(); // maks 1x per frame (stylus bisa kirim >120 event/detik)
+    scheduleRedraw(false); // maks 1x per frame (stylus bisa kirim >120 event/detik)
   }
 
   function onPointerUp(e) {
@@ -780,7 +801,7 @@
   // Gambar ulang SEMUA goresan selesai ke cache luar-layar (drawStroke memakai
   // `ctx` global, jadi ditukar sebentar -- pola sama dengan drawPanelPreview).
   function renderBase() {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = cvScale;
     if (!baseCanvas) { baseCanvas = document.createElement("canvas"); baseCtx = baseCanvas.getContext("2d"); }
     if (baseCanvas.width !== canvas.width || baseCanvas.height !== canvas.height) {
       baseCanvas.width = canvas.width;
@@ -799,32 +820,114 @@
   // Tempel satu goresan baru ke cache (urutan tetap benar: goresan baru selalu
   // paling akhir), tanpa membangun ulang cache.
   function drawOnBase(stroke) {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = cvScale;
     baseCtx.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.tx, dpr * view.ty);
     const real = ctx;
     ctx = baseCtx;
     try { drawStroke(stroke); } finally { ctx = real; }
   }
 
-  function redrawCanvas() {
-    const dpr = window.devicePixelRatio || 1;
-    if (!baseIsCurrent()) renderBase();
+  // Kotak pembatas goresan dalam px KANVAS (x0,y0,x1,y1), sudah ditambah bantalan
+  // setengah ketebalan terbesar yang mungkin (pena: lebar dinamis maks x1.4 ->
+  // 1.5; stabilo lebar x3; penghapus x2.2) + 4px antialias.
+  function strokeBounds(stroke) {
+    const pts = stroke.points;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      const x = pts[i][0], y = pts[i][1];
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+    const sc = cvScale;
+    const mult = stroke.tool === "eraser" ? 2.2 : stroke.tool === "highlight" ? 3 : 1.5;
+    const pad = (stroke.size * mult / 2) * view.s * sc + 4;
+    return {
+      x0: (x0 * pageW * view.s + view.tx) * sc - pad,
+      y0: (y0 * pageH * view.s + view.ty) * sc - pad,
+      x1: (x1 * pageW * view.s + view.tx) * sc + pad,
+      y1: (y1 * pageH * view.s + view.ty) * sc + pad
+    };
+  }
+
+  function unionRect(a, b) {
+    return {
+      x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0),
+      x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1)
+    };
+  }
+
+  // Tempel cache ke kanvas layar + gambar goresan aktif.
+  //  - dirty tidak diisi  = bersihkan & tempel SELURUH kanvas (undo/redo, zoom,
+  //    geser, resize, hapus -- semua yang mengubah isi cache).
+  //  - dirty = {x0,y0,x1,y1} (px kanvas) = hanya persegi itu yang dibersihkan,
+  //    ditempel ulang dari cache, dan digambari (clip). Syaratnya: di luar
+  //    persegi itu kanvas layar sudah sama dengan cache. Dipakai selama menulis
+  //    dan saat goresan selesai (lihat redrawLive & commitStrokes).
+  // `liveRect` selalu diperbarui di akhir supaya frame berikutnya tahu area
+  // mana yang harus dibersihkan (ujung prediksi bisa "mundur").
+  function redrawCanvas(dirty, live) {
+    const dpr = cvScale;
+    if (!baseIsCurrent()) { renderBase(); dirty = null; }
+    if (activeStroke && !live) live = livePreviewStroke();
+    if (!activeStroke) live = null;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = "source-over";
     ctx.globalAlpha = 1;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(baseCanvas, 0, 0);
-    if (activeStroke) {
-      ctx.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.tx, dpr * view.ty);
-      drawStroke(livePreviewStroke());
+    let clipped = false;
+    if (dirty) {
+      const x = Math.max(0, Math.floor(dirty.x0)), y = Math.max(0, Math.floor(dirty.y0));
+      const r = Math.min(canvas.width, Math.ceil(dirty.x1)), b = Math.min(canvas.height, Math.ceil(dirty.y1));
+      if (r <= x || b <= y) {           // seluruhnya di luar kanvas: tidak ada yang perlu digambar
+        liveRect = live ? strokeBounds(live) : null;
+        return;
+      }
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, r - x, b - y);
+      ctx.clip();
+      ctx.clearRect(x, y, r - x, b - y);
+      ctx.drawImage(baseCanvas, x, y, r - x, b - y, x, y, r - x, b - y);
+      clipped = true;
+    } else {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(baseCanvas, 0, 0);
     }
+    if (live) {
+      ctx.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.tx, dpr * view.ty);
+      drawStroke(live);
+    }
+    if (clipped) ctx.restore();
+    liveRect = live ? strokeBounds(live) : null;
   }
 
-  // Selama gestur, redraw dibatasi 1x per frame supaya cubit tetap mulus.
-  let rafId = 0;
-  function scheduleRedraw() {
+  // Redraw ringan selama menulis: hanya area goresan aktif (frame ini + frame
+  // sebelumnya) yang disentuh -- bukan seluruh kanvas 4K.
+  function redrawLive() {
+    if (!activeStroke) {
+      // Goresan sudah selesai/dibatalkan. Kalau kanvas sudah sinkron dengan
+      // cache (liveRect null), rAF yang tertunda ini tidak perlu berbuat apa-apa.
+      if (liveRect) redrawCanvas();
+      return;
+    }
+    const live = livePreviewStroke();
+    const b = strokeBounds(live);
+    redrawCanvas(liveRect ? unionRect(liveRect, b) : b, live);
+  }
+
+  // Selama gestur (zoom/geser) cache dibangun ulang -> perlu redraw penuh;
+  // selama menulis cukup redrawLive. Dibatasi 1x per frame.
+  let rafId = 0, pendingFull = false;
+  function scheduleRedraw(full) {
+    if (full) pendingFull = true;
     if (rafId) return;
-    rafId = requestAnimationFrame(() => { rafId = 0; redrawCanvas(); });
+    rafId = requestAnimationFrame(() => {
+      rafId = 0;
+      const f = pendingFull;
+      pendingFull = false;
+      if (f) redrawCanvas(); else redrawLive();
+    });
   }
 
   // ====== VIEW: ZOOM & GESER ======
@@ -845,7 +948,7 @@
     const refs = el("refImages");
     refs.style.transform = t;
     refs.style.setProperty("--inv", String(1 / view.s)); // tombol gambar tetap ukuran layar
-    if (sync) redrawCanvas(); else scheduleRedraw();
+    if (sync) redrawCanvas(); else scheduleRedraw(true);
   }
 
   // Lepas cubit dekat 100% -> "nempel" ke tampilan asli (mudah kembali normal).
@@ -881,8 +984,13 @@
     if (currentStrokes.length) strokesByQuiz[no] = currentStrokes;
     else delete strokesByQuiz[no];
     saveStrokesToStorage();
-    if (appended && baseIsCurrent()) drawOnBase(appended);
-    else baseValid = false;
+    if (appended && baseIsCurrent()) {
+      drawOnBase(appended);
+      const b = strokeBounds(appended);
+      redrawCanvas(liveRect ? unionRect(liveRect, b) : b);
+      return;
+    }
+    baseValid = false;
     redrawCanvas();
   }
 
